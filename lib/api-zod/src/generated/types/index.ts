@@ -15,3 +15,4 @@ export * from "./keywordResult";
 export * from "./keywordResultItem";
 export * from "./keywordType";
 export * from "./lookupAsinParams";
+export * from "./productAnalysis";

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { z } from "zod";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -13,7 +13,10 @@ import {
   Search,
   ChevronDown,
   ChevronUp,
-  Info
+  Info,
+  Layers,
+  Target,
+  BarChart3
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useGenerateKeywords } from "@workspace/api-client-react";
@@ -36,6 +39,7 @@ import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 const ASIN_REGEX = /B0[A-Z0-9]{8}/g;
@@ -60,9 +64,10 @@ const formSchema = z.object({
 type FormValues = z.infer<typeof formSchema>;
 
 const LOADING_PHRASES = [
-  "Fetching product titles…",
-  "Generating keywords…",
-  "Finding competitors…",
+  "Reading product from Amazon…",
+  "Distilling product type and attributes…",
+  "Generating high-intent keywords…",
+  "Selecting brand-diverse competitors…",
 ];
 
 export default function Home() {
@@ -71,6 +76,8 @@ export default function Home() {
   const [loadingPhraseIndex, setLoadingPhraseIndex] = useState(0);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [showTitleInput, setShowTitleInput] = useState(false);
+  const [duration, setDuration] = useState<number | null>(null);
+  const startTimeRef = useRef<number | null>(null);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -98,12 +105,18 @@ export default function Home() {
   useEffect(() => {
     let interval: NodeJS.Timeout;
     if (mutation.isPending) {
+      setLoadingPhraseIndex(0);
+      startTimeRef.current = performance.now();
       interval = setInterval(() => {
         setLoadingPhraseIndex((prev) => (prev + 1) % LOADING_PHRASES.length);
-      }, 1600);
+      }, 2500);
+    } else if (mutation.isSuccess && startTimeRef.current) {
+      const endTime = performance.now();
+      setDuration((endTime - startTimeRef.current) / 1000);
+      startTimeRef.current = null;
     }
     return () => clearInterval(interval);
-  }, [mutation.isPending]);
+  }, [mutation.isPending, mutation.isSuccess]);
 
   const onSubmit = (data: FormValues) => {
     const parsedAsins = data.asinsRaw.toUpperCase().match(ASIN_REGEX);
@@ -121,13 +134,24 @@ export default function Home() {
   const handleReset = () => {
     form.reset();
     mutation.reset();
+    setDuration(null);
+  };
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const text = e.clipboardData.getData("text");
+    const matches = text.toUpperCase().match(ASIN_REGEX);
+    if (matches && matches.length > 0) {
+      e.preventDefault();
+      const uniqueMatches = Array.from(new Set(matches));
+      form.setValue("asinsRaw", uniqueMatches.join("\n"));
+    }
   };
 
   const copyToClipboard = async (text: string, id: string) => {
     try {
       await navigator.clipboard.writeText(text);
       setCopiedId(id);
-      setTimeout(() => setCopiedId(null), 2000);
+      setTimeout(() => setCopiedId(null), 700);
     } catch (err) {
       toast({
         variant: "destructive",
@@ -213,7 +237,7 @@ export default function Home() {
 
         <main className="max-w-screen-2xl mx-auto w-full flex-1 grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-0">
           {/* Left Sidebar */}
-          <aside className="lg:h-screen lg:sticky lg:top-0 border-r border-slate-800 bg-slate-950/40 overflow-y-auto px-5 py-6">
+          <aside className="lg:h-[calc(100vh-3.5rem)] lg:sticky lg:top-14 border-r border-slate-800 bg-slate-950/40 overflow-y-auto px-5 py-6">
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
                 <FormField
@@ -221,22 +245,23 @@ export default function Home() {
                   name="asinsRaw"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel className="text-xs font-semibold text-slate-300">Amazon ASINs</FormLabel>
+                      <div className="flex items-center justify-between mb-1">
+                        <FormLabel className="text-xs font-semibold text-slate-300">Amazon ASINs</FormLabel>
+                        <div className="text-[10px] font-medium flex items-center gap-1.5">
+                          <span className={cn(asinStats.valid > 0 ? "text-emerald-400" : "text-slate-500")}>{asinStats.valid} valid</span>
+                          <span className="text-slate-700">|</span>
+                          <span className={cn(asinStats.invalid > 0 ? "text-rose-400" : "text-slate-500")}>{asinStats.invalid} invalid</span>
+                        </div>
+                      </div>
                       <FormControl>
                         <Textarea
                           placeholder="B07FZ8S74R, B0BDHWDR12..."
                           className="bg-slate-950 border-slate-800 focus:ring-blue-500 min-h-[120px] font-mono text-xs resize-none"
+                          onPaste={handlePaste}
                           {...field}
                         />
                       </FormControl>
-                      <div className="flex justify-between items-center pt-1">
-                        <p className="text-[10px] text-slate-500">Paste up to 15 ASINs</p>
-                        <div className="text-[10px] font-medium">
-                          <span className="text-emerald-400">{asinStats.valid} valid</span>
-                          <span className="text-slate-600 mx-1">·</span>
-                          <span className="text-rose-400">{asinStats.invalid} invalid</span>
-                        </div>
-                      </div>
+                      <FormDescription className="text-[10px] text-slate-600 mt-1">Paste up to 15 ASINs (auto-formatted)</FormDescription>
                       <FormMessage className="text-rose-400 text-[11px]" />
                     </FormItem>
                   )}
@@ -278,7 +303,7 @@ export default function Home() {
                   )}
                 </div>
 
-                <div className="space-y-4 pt-2">
+                <div className="space-y-4 pt-2 border-t border-slate-900">
                   <FormField
                     control={form.control}
                     name="brand"
@@ -353,10 +378,27 @@ export default function Home() {
                   <div className="w-16 h-16 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center mb-6">
                     <Search className="w-8 h-8 text-slate-600" />
                   </div>
-                  <h2 className="text-xl font-bold text-slate-200 mb-2">Ready to Analyze</h2>
-                  <p className="text-sm text-slate-500 max-w-sm">
-                    Enter Amazon ASINs on the left to generate conversion-optimized keywords and competitor targets.
-                  </p>
+                  <h2 className="text-xl font-bold text-slate-200 mb-4">Ready to Analyze</h2>
+                  <div className="space-y-3 max-w-sm text-left">
+                    <div className="flex items-start gap-3">
+                      <div className="w-5 h-5 rounded-full bg-blue-500/10 flex items-center justify-center shrink-0 mt-0.5">
+                        <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                      </div>
+                      <p className="text-sm text-slate-400"><span className="text-slate-200 font-medium">Distills</span> long Amazon titles into the real product type.</p>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <div className="w-5 h-5 rounded-full bg-blue-500/10 flex items-center justify-center shrink-0 mt-0.5">
+                        <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                      </div>
+                      <p className="text-sm text-slate-400"><span className="text-slate-200 font-medium">30 conversion-grade</span> keywords per ASIN.</p>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <div className="w-5 h-5 rounded-full bg-blue-500/10 flex items-center justify-center shrink-0 mt-0.5">
+                        <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                      </div>
+                      <p className="text-sm text-slate-400"><span className="text-slate-200 font-medium">5 competitor ASINs</span> from different brands.</p>
+                    </div>
+                  </div>
                 </motion.div>
               )}
 
@@ -367,10 +409,27 @@ export default function Home() {
                   animate={{ opacity: 1 }}
                   className="p-8 space-y-6"
                 >
-                  <div className="h-10 w-64 bg-slate-900 animate-pulse rounded" />
+                  <div className="flex items-center justify-between">
+                    <Skeleton className="h-10 w-64 bg-slate-900" />
+                    <Skeleton className="h-8 w-48 bg-slate-900" />
+                  </div>
                   <div className="space-y-4">
                     {[1, 2].map(i => (
-                      <div key={i} className="h-48 w-full bg-slate-900 animate-pulse rounded-xl border border-slate-800" />
+                      <div key={i} className="p-4 bg-slate-900/40 rounded-xl border border-slate-800 space-y-6">
+                        <div className="flex justify-between">
+                          <div className="space-y-2">
+                            <Skeleton className="h-4 w-24 bg-slate-800" />
+                            <Skeleton className="h-6 w-96 bg-slate-800" />
+                          </div>
+                          <Skeleton className="h-4 w-32 bg-slate-800" />
+                        </div>
+                        <Skeleton className="h-24 w-full bg-slate-800/50" />
+                        <div className="grid grid-cols-3 gap-4">
+                          <Skeleton className="h-40 bg-slate-800/30" />
+                          <Skeleton className="h-40 bg-slate-800/30" />
+                          <Skeleton className="h-40 bg-slate-800/30" />
+                        </div>
+                      </div>
                     ))}
                   </div>
                 </motion.div>
@@ -384,7 +443,7 @@ export default function Home() {
                   className="flex flex-col h-full"
                 >
                   {/* Sticky Results Toolbar */}
-                  <div className="sticky top-14 z-40 bg-slate-950/60 backdrop-blur-md border-b border-slate-800 px-6 py-3 flex items-center justify-between">
+                  <div className="sticky top-14 z-40 bg-slate-950/60 backdrop-blur-md border-b border-slate-800 px-6 py-2.5 flex items-center justify-between">
                     <div className="flex items-center gap-4 text-xs">
                       <div className="flex flex-col">
                         <span className="text-slate-500 uppercase tracking-tighter text-[9px] font-bold">Products</span>
@@ -400,36 +459,45 @@ export default function Home() {
                         <span className="text-slate-500 uppercase tracking-tighter text-[9px] font-bold">Targets</span>
                         <span className="font-mono tabular-nums">{totalTargets}</span>
                       </div>
+                      {duration !== null && (
+                        <>
+                          <div className="w-px h-6 bg-slate-800" />
+                          <div className="flex flex-col">
+                            <span className="text-slate-500 uppercase tracking-tighter text-[9px] font-bold">Search Time</span>
+                            <span className="text-slate-400 font-mono tabular-nums">{duration.toFixed(1)}s</span>
+                          </div>
+                        </>
+                      )}
                     </div>
                     <div className="flex items-center gap-2">
-                      <Button variant="outline" size="sm" className="h-8 text-xs border-slate-800 bg-slate-900 hover:bg-slate-800" onClick={copyAllKeywords} data-testid="btn-copy-all">
+                      <Button variant="outline" size="sm" className="h-7 text-xs border-slate-800 bg-slate-900 hover:bg-slate-800 px-2" onClick={copyAllKeywords} data-testid="btn-copy-all">
                         {copiedId === "copy-all" ? <Check className="w-3 h-3 mr-1.5" /> : <Copy className="w-3 h-3 mr-1.5" />}
                         Copy all
                       </Button>
-                      <Button variant="outline" size="sm" className="h-8 text-xs border-slate-800 bg-slate-900 hover:bg-slate-800" onClick={exportCSV} data-testid="btn-export-csv">
+                      <Button variant="outline" size="sm" className="h-7 text-xs border-slate-800 bg-slate-900 hover:bg-slate-800 px-2" onClick={exportCSV} data-testid="btn-export-csv">
                         <Download className="w-3 h-3 mr-1.5" />
-                        Export CSV
+                        Export
                       </Button>
-                      <Button variant="ghost" size="sm" className="h-8 text-xs text-slate-500 hover:text-white" onClick={handleReset} data-testid="btn-reset">
+                      <Button variant="ghost" size="sm" className="h-7 text-xs text-slate-500 hover:text-white px-2" onClick={handleReset} data-testid="btn-reset">
                         <RotateCcw className="w-3 h-3 mr-1.5" />
-                        New search
+                        Reset
                       </Button>
                     </div>
                   </div>
 
-                  <div className="p-6 space-y-4">
+                  <div className="p-6 space-y-3">
                     {mutation.data.items.length === 1 ? (
                       <ResultCard item={mutation.data.items[0]} index={0} />
                     ) : (
                       <Accordion type="single" collapsible defaultValue="item-0" className="space-y-3">
                         {mutation.data.items.map((item, idx) => (
                           <AccordionItem key={idx} value={`item-${idx}`} className="border-none">
-                            <AccordionTrigger className="flex p-3 bg-slate-900/40 hover:bg-slate-900/60 rounded-lg border border-slate-800 transition-all [&[data-state=open]]:rounded-b-none [&[data-state=open]]:border-b-0 hover:no-underline">
+                            <AccordionTrigger className="flex p-3 bg-slate-900/40 hover:bg-slate-900/60 rounded-lg border border-slate-800 transition-all [&[data-state=open]]:rounded-b-none [&[data-state=open]]:border-b-0 hover:no-underline group">
                               <div className="flex items-center gap-3 text-left min-w-0 pr-4">
-                                <Badge variant="outline" className="font-mono text-[10px] shrink-0 bg-slate-950 border-slate-700">
+                                <Badge variant="outline" className="font-mono text-[10px] shrink-0 bg-slate-950 border-slate-700 text-blue-400">
                                   {item.asin || "TITLE"}
                                 </Badge>
-                                <span className="text-sm font-medium truncate text-slate-300">
+                                <span className="text-sm font-medium truncate text-slate-300 group-hover:text-white transition-colors">
                                   {item.title}
                                 </span>
                               </div>
@@ -458,7 +526,7 @@ function ResultCard({ item, index, noBorder }: { item: any, index: number, noBor
   const copy = (val: string, id: string) => {
     navigator.clipboard.writeText(val);
     setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 1500);
+    setTimeout(() => setCopiedId(null), 700);
   };
 
   if (item.error) {
@@ -480,25 +548,27 @@ function ResultCard({ item, index, noBorder }: { item: any, index: number, noBor
 
   return (
     <Card className={cn("bg-slate-900/40 border-slate-800 overflow-hidden", noBorder && "border-none shadow-none bg-transparent")}>
-      <CardContent className="p-4 space-y-6">
+      <CardContent className="p-4 space-y-3">
         {/* Header Strip */}
         <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 mb-1">
-              <span className="font-mono text-xs text-blue-400 font-bold tracking-widest">{item.asin || "N/A"}</span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 mb-1.5">
+              <span className="font-mono text-[13px] text-blue-400 font-bold tracking-widest bg-blue-500/10 px-1.5 py-0.5 rounded border border-blue-500/20">
+                {item.asin || "N/A"}
+              </span>
               {item.detectedBrand && (
-                <Badge className="bg-blue-500/10 text-blue-400 border-blue-500/20 text-[10px] py-0 h-4">
-                  Brand: {item.detectedBrand}
+                <Badge className="bg-slate-800 text-slate-300 border-slate-700 text-[10px] py-0 h-5">
+                  {item.detectedBrand}
                 </Badge>
               )}
             </div>
             <Tooltip>
               <TooltipTrigger asChild>
-                <h3 className="text-sm font-semibold text-slate-100 truncate cursor-help">
+                <h3 className="text-sm font-semibold text-slate-100 line-clamp-1 cursor-help leading-tight">
                   {item.title}
                 </h3>
               </TooltipTrigger>
-              <TooltipContent className="max-w-xs bg-slate-900 border-slate-800 text-xs">
+              <TooltipContent className="max-w-xs bg-slate-900 border-slate-800 text-xs text-slate-200">
                 {item.title}
               </TooltipContent>
             </Tooltip>
@@ -508,17 +578,77 @@ function ResultCard({ item, index, noBorder }: { item: any, index: number, noBor
               href={`https://www.amazon.com/dp/${item.asin}`} 
               target="_blank" 
               rel="noopener noreferrer"
-              className="flex items-center gap-1 text-[10px] text-slate-500 hover:text-blue-400 transition-colors whitespace-nowrap"
+              className="flex items-center gap-1.5 text-[10px] font-medium text-slate-500 hover:text-blue-400 transition-colors whitespace-nowrap pt-1"
             >
-              View on Amazon <ExternalLink className="w-2.5 h-2.5" />
+              Open on Amazon <ExternalLink className="w-3 h-3" />
             </a>
           )}
         </div>
 
+        {/* Product Snapshot / Analysis */}
+        {item.analysis && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            transition={{ duration: 0.3 }}
+            className="overflow-hidden"
+          >
+            <div className="bg-slate-950 border-l-2 border-blue-600 rounded-md p-3 space-y-3 shadow-inner">
+              <div className="flex items-start justify-between">
+                <div>
+                  <span className="text-[10px] uppercase tracking-wide text-slate-500 block mb-0.5">Core Product</span>
+                  <div className="text-base font-semibold text-slate-100">
+                    {item.analysis.coreProduct}
+                  </div>
+                </div>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button className="text-slate-600 hover:text-slate-400 transition-colors">
+                      <Info className="w-3.5 h-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-[240px] bg-slate-900 border-slate-800 text-[11px] text-slate-300 p-2.5">
+                    <p className="font-semibold text-slate-100 mb-1">How we framed it</p>
+                    We distill long Amazon titles into the core product type and key attributes, then anchor every keyword on that understanding.
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+
+              <div className="flex flex-wrap gap-1.5">
+                {item.analysis.attributes.map((attr: string, i: number) => (
+                  <motion.span
+                    key={attr}
+                    initial={{ scale: 0.9, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    transition={{ delay: i * 0.03 }}
+                    className="text-[11px] px-2 py-0.5 rounded-md bg-slate-900/60 border border-slate-800 text-slate-400"
+                  >
+                    {attr}
+                  </motion.span>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 border-t border-slate-900/50">
+                {item.analysis.useCase && (
+                  <div className="text-xs text-slate-500">
+                    <span className="font-medium text-slate-400">Use case:</span> {item.analysis.useCase}
+                  </div>
+                )}
+                {item.analysis.audience && (
+                  <div className="text-xs text-slate-500">
+                    <span className="font-medium text-slate-400">Audience:</span> {item.analysis.audience}
+                  </div>
+                )}
+              </div>
+            </div>
+          </motion.div>
+        )}
+
         {/* Keywords Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
           <KeywordSection 
             label="High Intent" 
+            icon={<Zap className="w-3 h-3 text-amber-500" />}
             keywords={item.keywords.filter((k: any) => k.type === "High Intent")}
             borderColor="border-amber-500/50"
             itemIndex={index}
@@ -527,7 +657,8 @@ function ResultCard({ item, index, noBorder }: { item: any, index: number, noBor
             copiedId={copiedId}
           />
           <KeywordSection 
-            label="Core" 
+            label="Core Keywords" 
+            icon={<Layers className="w-3 h-3 text-blue-500" />}
             keywords={item.keywords.filter((k: any) => k.type === "Core")}
             borderColor="border-blue-500/50"
             itemIndex={index}
@@ -537,6 +668,7 @@ function ResultCard({ item, index, noBorder }: { item: any, index: number, noBor
           />
           <KeywordSection 
             label="Long-Tail" 
+            icon={<BarChart3 className="w-3 h-3 text-emerald-500" />}
             keywords={item.keywords.filter((k: any) => k.type === "Long Tail")}
             borderColor="border-emerald-500/50"
             itemIndex={index}
@@ -547,16 +679,16 @@ function ResultCard({ item, index, noBorder }: { item: any, index: number, noBor
         </div>
 
         {/* Competitor Targets */}
-        <div className="space-y-3 pt-2">
+        <div className="space-y-2.5 pt-1">
           <div className="flex items-center justify-between">
             <h4 className="text-[10px] font-bold uppercase tracking-widest text-slate-500 flex items-center gap-1.5">
-              <Search className="w-3 h-3" />
-              Competitor Targets
+              <Target className="w-3 h-3" />
+              Competitor Targets {item.competitor_asins.length > 0 && `· ${item.competitor_asins.length} Brands`}
             </h4>
             {item.competitor_asins.length > 0 && (
               <button 
                 onClick={() => copy(item.competitor_asins.join("\n"), `targets-${index}`)}
-                className="text-[10px] text-slate-500 hover:text-white flex items-center gap-1"
+                className="text-[10px] text-slate-500 hover:text-white flex items-center gap-1 transition-colors"
               >
                 {copiedId === `targets-${index}` ? <Check className="w-2.5 h-2.5" /> : <Copy className="w-2.5 h-2.5" />}
                 Copy all
@@ -567,8 +699,8 @@ function ResultCard({ item, index, noBorder }: { item: any, index: number, noBor
           {item.competitor_asins.length > 0 ? (
             <div className="flex flex-wrap gap-2">
               {item.competitor_asins.map((asin: string, idx: number) => (
-                <div key={asin} className="flex items-center bg-slate-950 border border-slate-800 rounded px-2 py-1 group">
-                  <span className="text-[9px] font-bold text-slate-600 mr-2">{idx + 1}</span>
+                <div key={asin} className="flex items-center bg-slate-950 border border-slate-800 rounded-md px-2 py-0.5 group hover:border-slate-700 transition-colors">
+                  <span className="text-[9px] font-bold text-slate-600 mr-2 tabular-nums">{idx + 1}</span>
                   <span className="font-mono text-xs text-slate-300 tracking-wider mr-2">{asin}</span>
                   <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button 
@@ -586,7 +718,7 @@ function ResultCard({ item, index, noBorder }: { item: any, index: number, noBor
               ))}
             </div>
           ) : (
-            <p className="text-[11px] text-slate-600 italic">No competitor ASINs found from Amazon search — try again.</p>
+            <p className="text-[11px] text-slate-600 italic">No competitor ASINs found.</p>
           )}
         </div>
       </CardContent>
@@ -594,17 +726,18 @@ function ResultCard({ item, index, noBorder }: { item: any, index: number, noBor
   );
 }
 
-function KeywordSection({ label, keywords, borderColor, itemIndex, sectionIdx, onCopy, copiedId }: any) {
+function KeywordSection({ label, icon, keywords, borderColor, itemIndex, sectionIdx, onCopy, copiedId }: any) {
   return (
-    <div className={cn("bg-slate-950/40 border-l-2 p-2.5 rounded-r-lg space-y-3", borderColor)}>
+    <div className={cn("bg-slate-950/40 border-l-2 p-3 rounded-r-lg space-y-2.5 border-slate-800", borderColor)}>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500">{label}</span>
-          <Badge className="bg-slate-900 text-slate-400 text-[9px] py-0 h-3.5 px-1.5 font-mono">{keywords.length}</Badge>
+          {icon}
+          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-300">{label}</span>
+          <span className="text-[10px] font-mono tabular-nums text-slate-500">({keywords.length})</span>
         </div>
         <button 
           onClick={() => onCopy(keywords.map((k: any) => k.value).join("\n"), `sec-${itemIndex}-${sectionIdx}`)}
-          className="text-slate-500 hover:text-white transition-colors"
+          className="text-slate-600 hover:text-white transition-colors"
         >
           {copiedId === `sec-${itemIndex}-${sectionIdx}` ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
         </button>
@@ -616,15 +749,30 @@ function KeywordSection({ label, keywords, borderColor, itemIndex, sectionIdx, o
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ delay: idx * 0.02 }}
+            whileHover={{ scale: 1.03 }}
             onClick={() => onCopy(kw.value, `kw-${itemIndex}-${sectionIdx}-${idx}`)}
-            className="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-[10px] text-slate-400 hover:text-white hover:border-slate-700 transition-all flex items-center gap-1.5 group"
+            className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-xs text-slate-400 hover:text-white hover:border-slate-700 transition-all flex items-center gap-1.5 group relative"
             data-testid={`chip-kw-${itemIndex}-${idx}`}
           >
-            {kw.value}
-            {copiedId === `kw-${itemIndex}-${sectionIdx}-${idx}` && <Check className="w-2.5 h-2.5 text-emerald-400" />}
+            <span className={cn(
+              "transition-opacity duration-300",
+              copiedId === `kw-${itemIndex}-${sectionIdx}-${idx}` ? "opacity-30" : "opacity-100"
+            )}>
+              {kw.value}
+            </span>
+            {copiedId === `kw-${itemIndex}-${sectionIdx}-${idx}` && (
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.5 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="absolute inset-0 flex items-center justify-center bg-emerald-500/10 rounded-md"
+              >
+                <Check className="w-3 h-3 text-emerald-400" />
+              </motion.div>
+            )}
           </motion.button>
         ))}
       </div>
     </div>
   );
 }
+
