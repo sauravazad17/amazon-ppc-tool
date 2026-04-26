@@ -1,20 +1,19 @@
 import { useState, useEffect, useMemo } from "react";
 import { z } from "zod";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { 
   Copy, 
   Check, 
   Download, 
-  Layers, 
-  Target, 
   Zap, 
-  Sparkles, 
   ExternalLink, 
   RotateCcw, 
   AlertCircle,
   Search,
-  LayoutDashboard
+  ChevronDown,
+  ChevronUp,
+  Info
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useGenerateKeywords } from "@workspace/api-client-react";
@@ -32,38 +31,28 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { cn } from "@/lib/utils";
 
-const ASIN_REGEX = /^B0[A-Z0-9]{8}$/;
+const ASIN_REGEX = /B0[A-Z0-9]{8}/g;
 
 const formSchema = z.object({
-  title: z.string().optional(),
-  asin: z.string().optional(),
-  brand: z.string().optional(),
-  category: z.string().optional(),
-  priceRange: z.string().optional(),
+  asinsRaw: z.string().default(""),
+  title: z.string().default(""),
+  brand: z.string().default(""),
+  category: z.string().default(""),
+  priceRange: z.string().default(""),
 }).superRefine((data, ctx) => {
-  if (!data.title && !data.asin) {
+  const asins = data.asinsRaw.toUpperCase().match(ASIN_REGEX) || [];
+  if (asins.length === 0 && data.title.length < 4) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "At least one of Product Title or ASIN must be provided",
-      path: ["title"],
-    });
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "At least one of Product Title or ASIN must be provided",
-      path: ["asin"],
-    });
-  }
-  if (data.asin && !ASIN_REGEX.test(data.asin)) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "Invalid ASIN format (e.g., B07FZ8S74R)",
-      path: ["asin"],
+      message: "Enter at least one valid ASIN or a product title (min 4 chars)",
+      path: ["asinsRaw"],
     });
   }
 });
@@ -71,10 +60,9 @@ const formSchema = z.object({
 type FormValues = z.infer<typeof formSchema>;
 
 const LOADING_PHRASES = [
-  "Analyzing product…",
+  "Fetching product titles…",
   "Generating keywords…",
-  "Fetching competitor ASINs…",
-  "Optimizing results…",
+  "Finding competitors…",
 ];
 
 export default function Home() {
@@ -82,33 +70,47 @@ export default function Home() {
   const mutation = useGenerateKeywords();
   const [loadingPhraseIndex, setLoadingPhraseIndex] = useState(0);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [showTitleInput, setShowTitleInput] = useState(false);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
+      asinsRaw: "",
       title: "",
-      asin: "",
       brand: "",
       category: "",
       priceRange: "",
     },
   });
 
+  const asinsRaw = useWatch({ control: form.control, name: "asinsRaw" });
+  
+  const asinStats = useMemo(() => {
+    if (!asinsRaw) return { valid: 0, invalid: 0 };
+    const tokens = asinsRaw.split(/[\s,]+/).filter(Boolean);
+    const matches = asinsRaw.toUpperCase().match(ASIN_REGEX) || [];
+    return {
+      valid: matches.length,
+      invalid: Math.max(0, tokens.length - matches.length)
+    };
+  }, [asinsRaw]);
+
   useEffect(() => {
     let interval: NodeJS.Timeout;
     if (mutation.isPending) {
       interval = setInterval(() => {
         setLoadingPhraseIndex((prev) => (prev + 1) % LOADING_PHRASES.length);
-      }, 1500);
+      }, 1600);
     }
     return () => clearInterval(interval);
   }, [mutation.isPending]);
 
   const onSubmit = (data: FormValues) => {
+    const parsedAsins = data.asinsRaw.toUpperCase().match(ASIN_REGEX);
     mutation.mutate({
       data: {
+        asins: parsedAsins,
         title: data.title || undefined,
-        asin: data.asin || undefined,
         brand: data.brand || undefined,
         category: data.category || undefined,
         priceRange: data.priceRange || undefined,
@@ -121,14 +123,10 @@ export default function Home() {
     mutation.reset();
   };
 
-  const copyToClipboard = async (text: string, id: string, label: string) => {
+  const copyToClipboard = async (text: string, id: string) => {
     try {
       await navigator.clipboard.writeText(text);
       setCopiedId(id);
-      toast({
-        title: "Copied!",
-        description: `${label} copied to clipboard.`,
-      });
       setTimeout(() => setCopiedId(null), 2000);
     } catch (err) {
       toast({
@@ -140,510 +138,493 @@ export default function Home() {
   };
 
   const exportCSV = () => {
-    if (!mutation.data) return;
-    const { keywords } = mutation.data;
-    const csvContent = [
-      "type,keyword",
-      ...keywords.map((k) => `"${k.type}","${k.value}"`),
-    ].join("\n");
+    if (!mutation.data?.items) return;
+    
+    let csvRows = ["ASIN,Keyword/Target"];
+    
+    mutation.data.items.forEach(item => {
+      const asinVal = item.asin || "(title)";
+      const escape = (val: string) => {
+        if (val.includes(",") || val.includes("\"")) {
+          return `"${val.replace(/"/g, '""')}"`;
+        }
+        return val;
+      };
 
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      // Keywords in order
+      const types = ["High Intent", "Core", "Long Tail"] as const;
+      types.forEach(type => {
+        item.keywords
+          .filter(k => k.type === type)
+          .forEach(k => {
+            csvRows.push(`${asinVal},${escape(k.value)}`);
+          });
+      });
+
+      // Targets
+      item.competitor_asins.forEach(target => {
+        csvRows.push(`${asinVal},${target}`);
+      });
+    });
+
+    const blob = new Blob([csvRows.join("\n")], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const timestamp = new Date().toISOString().replace(/[:T]/g, "-").slice(0, 16).replace(/-/g, "");
     link.setAttribute("href", url);
-    link.setAttribute("download", `amazon-ppc-keywords-${timestamp}.csv`);
+    link.setAttribute("download", `amazon-ppc-export-${timestamp}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
 
   const copyAllKeywords = () => {
-    if (!mutation.data) return;
-    const text = mutation.data.keywords.map((k) => k.value).join("\n");
-    copyToClipboard(text, "all-keywords", "All keywords");
+    if (!mutation.data?.items) return;
+    const allKws = mutation.data.items.flatMap(item => item.keywords.map(k => k.value));
+    const uniqueKws = Array.from(new Set(allKws)).join("\n");
+    copyToClipboard(uniqueKws, "copy-all");
+    toast({ title: "Copied all keywords", description: "All keywords across products copied to clipboard." });
   };
 
-  const errorMessage = useMemo(() => {
-    if (!mutation.error) return null;
-    return (mutation.error as any)?.response?.data?.error || (mutation.error as Error)?.message;
-  }, [mutation.error]);
+  const totalKws = mutation.data?.items.reduce((acc, item) => acc + (item.keywords?.length || 0), 0) || 0;
+  const totalTargets = mutation.data?.items.reduce((acc, item) => acc + (item.competitor_asins?.length || 0), 0) || 0;
 
   return (
-    <div className="min-h-screen bg-[#020617] text-slate-50 font-sans selection:bg-blue-500/30">
-      {/* Background Texture */}
-      <div className="fixed inset-0 bg-[linear-gradient(to_right,#1e293b_1px,transparent_1px),linear-gradient(to_bottom,#1e293b_1px,transparent_1px)] bg-[size:4rem_4rem] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_0%,#000_70%,transparent_100%)] pointer-events-none opacity-20" />
-
-      {/* Top Bar */}
-      <header className="sticky top-0 z-50 border-b border-slate-800 bg-slate-950/80 backdrop-blur-md">
-        <div className="max-w-[1600px] mx-auto px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center shadow-lg shadow-blue-900/20">
-              <Zap className="w-6 h-6 text-white fill-current" />
+    <TooltipProvider>
+      <div className="min-h-screen w-full overflow-x-hidden bg-[#020617] text-slate-50 font-sans selection:bg-blue-500/30 flex flex-col">
+        {/* Top Bar */}
+        <header className="sticky top-0 z-50 border-b border-slate-800 bg-slate-950/80 backdrop-blur-md shrink-0">
+          <div className="max-w-screen-2xl mx-auto px-6 h-14 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center shadow-lg">
+                <Zap className="w-5 h-5 text-white fill-current" />
+              </div>
+              <div className="hidden sm:block">
+                <h1 className="font-bold text-sm tracking-tight leading-none">Amazon PPC Keyword Generator</h1>
+                <p className="text-[10px] text-slate-500 mt-0.5 uppercase tracking-wider">Professional Targeting Suite</p>
+              </div>
             </div>
-            <div>
-              <h1 className="font-bold text-xl tracking-tight leading-none">Amazon PPC Keywords</h1>
-              <p className="text-xs text-slate-400 mt-1">AI-powered keyword research for Amazon sellers</p>
+            <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20">
+              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">Live Amazon search</span>
             </div>
           </div>
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
-            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">Live Amazon search</span>
-          </div>
-        </div>
-      </header>
+        </header>
 
-      <main className="max-w-[1600px] mx-auto p-6 grid grid-cols-1 lg:grid-cols-[400px_1fr] gap-8 relative z-10">
-        {/* Left Column: Form */}
-        <aside className="lg:sticky lg:top-24 self-start">
-          <Card className="bg-slate-900/50 border-slate-800 shadow-xl backdrop-blur-sm">
-            <CardHeader>
-              <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                <Search className="w-4 h-4 text-blue-400" />
-                Product Details
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Form {...form}>
-                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
-                  <FormField
-                    control={form.control}
-                    name="title"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="text-slate-300">Product Title</FormLabel>
-                        <FormControl>
-                          <Textarea
-                            placeholder='e.g. "Stainless Steel Insulated Water Bottle 32oz with Straw"'
-                            className="bg-slate-950 border-slate-800 focus:ring-blue-500 min-h-[100px] resize-none"
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormMessage className="text-rose-400" />
-                      </FormItem>
-                    )}
-                  />
+        <main className="max-w-screen-2xl mx-auto w-full flex-1 grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-0">
+          {/* Left Sidebar */}
+          <aside className="lg:h-screen lg:sticky lg:top-0 border-r border-slate-800 bg-slate-950/40 overflow-y-auto px-5 py-6">
+            <Form {...form}>
+              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+                <FormField
+                  control={form.control}
+                  name="asinsRaw"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs font-semibold text-slate-300">Amazon ASINs</FormLabel>
+                      <FormControl>
+                        <Textarea
+                          placeholder="B07FZ8S74R, B0BDHWDR12..."
+                          className="bg-slate-950 border-slate-800 focus:ring-blue-500 min-h-[120px] font-mono text-xs resize-none"
+                          {...field}
+                        />
+                      </FormControl>
+                      <div className="flex justify-between items-center pt-1">
+                        <p className="text-[10px] text-slate-500">Paste up to 15 ASINs</p>
+                        <div className="text-[10px] font-medium">
+                          <span className="text-emerald-400">{asinStats.valid} valid</span>
+                          <span className="text-slate-600 mx-1">·</span>
+                          <span className="text-rose-400">{asinStats.invalid} invalid</span>
+                        </div>
+                      </div>
+                      <FormMessage className="text-rose-400 text-[11px]" />
+                    </FormItem>
+                  )}
+                />
 
-                  <FormField
-                    control={form.control}
-                    name="asin"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="text-slate-300">ASIN</FormLabel>
-                        <FormControl>
-                          <Input
-                            placeholder="B07FZ8S74R"
-                            className="bg-slate-950 border-slate-800 focus:ring-blue-500 uppercase"
-                            {...field}
-                            onChange={(e) => field.onChange(e.target.value.toUpperCase())}
-                          />
-                        </FormControl>
-                        <FormDescription className="text-slate-500 text-[11px]">
-                          Paste an ASIN to auto-fetch title from Amazon.
-                        </FormDescription>
-                        <FormMessage className="text-rose-400" />
-                      </FormItem>
-                    )}
-                  />
+                <div className="space-y-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowTitleInput(!showTitleInput)}
+                    className="text-[11px] text-blue-400 hover:text-blue-300 flex items-center gap-1 transition-colors"
+                  >
+                    {showTitleInput ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                    Use a product title instead
+                  </button>
+                  
+                  {showTitleInput && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      className="overflow-hidden"
+                    >
+                      <FormField
+                        control={form.control}
+                        name="title"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormControl>
+                              <Textarea
+                                placeholder="Enter full product title..."
+                                className="bg-slate-950 border-slate-800 focus:ring-blue-500 min-h-[80px] text-xs"
+                                {...field}
+                              />
+                            </FormControl>
+                            <FormMessage className="text-rose-400 text-[11px]" />
+                          </FormItem>
+                        )}
+                      />
+                    </motion.div>
+                  )}
+                </div>
 
+                <div className="space-y-4 pt-2">
                   <FormField
                     control={form.control}
                     name="brand"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel className="text-slate-300">Brand (Optional)</FormLabel>
+                        <FormLabel className="text-xs text-slate-400">Brand override</FormLabel>
                         <FormControl>
-                          <Input className="bg-slate-950 border-slate-800 focus:ring-blue-500" {...field} />
+                          <Input className="bg-slate-950 border-slate-800 h-8 text-xs" placeholder="Optional" {...field} />
                         </FormControl>
-                        <FormMessage />
+                        <FormDescription className="text-[10px] text-slate-600">Auto-detected if blank</FormDescription>
                       </FormItem>
                     )}
                   />
-
                   <FormField
                     control={form.control}
                     name="category"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel className="text-slate-300">Category (Optional)</FormLabel>
+                        <FormLabel className="text-xs text-slate-400">Category</FormLabel>
                         <FormControl>
-                          <Input className="bg-slate-950 border-slate-800 focus:ring-blue-500" {...field} />
+                          <Input className="bg-slate-950 border-slate-800 h-8 text-xs" placeholder="Optional" {...field} />
                         </FormControl>
-                        <FormMessage />
                       </FormItem>
                     )}
                   />
-
                   <FormField
                     control={form.control}
                     name="priceRange"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel className="text-slate-300">Price Range (Optional)</FormLabel>
+                        <FormLabel className="text-xs text-slate-400">Price range</FormLabel>
                         <FormControl>
-                          <Input placeholder="$20-$30" className="bg-slate-950 border-slate-800 focus:ring-blue-500" {...field} />
+                          <Input className="bg-slate-950 border-slate-800 h-8 text-xs" placeholder="$20-$30" {...field} />
                         </FormControl>
-                        <FormMessage />
                       </FormItem>
                     )}
                   />
-
-                  <Button
-                    type="submit"
-                    disabled={mutation.isPending}
-                    className="w-full h-11 bg-blue-600 hover:bg-blue-500 text-white font-bold transition-all active:scale-[0.98] shadow-lg shadow-blue-600/20"
-                    data-testid="btn-generate"
-                  >
-                    {mutation.isPending ? (
-                      <div className="flex items-center gap-3">
-                        <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-                        <span>{LOADING_PHRASES[loadingPhraseIndex]}</span>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-2">
-                        <Zap className="w-4 h-4 fill-current" />
-                        Generate Keywords
-                      </div>
-                    )}
-                  </Button>
-                </form>
-              </Form>
-            </CardContent>
-          </Card>
-        </aside>
-
-        {/* Right Column: Results */}
-        <section className="min-h-[600px]">
-          <AnimatePresence mode="wait">
-            {!mutation.data && !mutation.isPending && !mutation.isError && (
-              <motion.div
-                key="empty"
-                initial={{ opacity: 0, scale: 0.98 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.98 }}
-                className="h-full flex flex-col items-center justify-center p-12 border-2 border-dashed border-slate-800 rounded-2xl bg-slate-900/20"
-              >
-                <div className="w-20 h-20 rounded-3xl bg-slate-800/50 flex items-center justify-center mb-8">
-                  <LayoutDashboard className="w-10 h-10 text-slate-500" />
                 </div>
-                <h2 className="text-2xl font-bold mb-3">Intelligence Dashboard</h2>
-                <p className="text-slate-400 max-w-md text-center leading-relaxed mb-8">
-                  Our AI analyzes millions of search patterns to find the highest converting targets for your product.
-                </p>
-                <div className="flex flex-wrap justify-center gap-3">
-                  <Badge variant="outline" className="px-4 py-2 border-orange-500/20 bg-orange-500/5 text-orange-400 text-sm">
-                    <Target className="w-3.5 h-3.5 mr-2" /> High Intent
-                  </Badge>
-                  <Badge variant="outline" className="px-4 py-2 border-blue-500/20 bg-blue-500/5 text-blue-400 text-sm">
-                    <Layers className="w-3.5 h-3.5 mr-2" /> Core Keywords
-                  </Badge>
-                  <Badge variant="outline" className="px-4 py-2 border-emerald-500/20 bg-emerald-500/5 text-emerald-400 text-sm">
-                    <Sparkles className="w-3.5 h-3.5 mr-2" /> Long Tail
-                  </Badge>
-                </div>
-              </motion.div>
-            )}
 
-            {mutation.isPending && (
-              <motion.div
-                key="loading"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="space-y-8"
-              >
-                <div className="p-6 bg-slate-900/50 border border-slate-800 rounded-xl">
-                  <Skeleton className="h-4 w-48 mb-3 bg-slate-800" />
-                  <Skeleton className="h-8 w-full bg-slate-800" />
-                </div>
-                <div className="grid grid-cols-1 gap-6">
-                  {[1, 2, 3].map((i) => (
-                    <Card key={i} className="bg-slate-900/50 border-slate-800">
-                      <CardHeader className="flex flex-row items-center justify-between pb-4">
-                        <Skeleton className="h-6 w-32 bg-slate-800" />
-                        <Skeleton className="h-8 w-20 bg-slate-800" />
-                      </CardHeader>
-                      <CardContent className="flex flex-wrap gap-3">
-                        {[1, 2, 3, 4, 5, 6].map((j) => (
-                          <Skeleton key={j} className="h-10 w-24 rounded-full bg-slate-800" />
-                        ))}
-                      </CardContent>
-                    </Card>
-                  ))}
-                  <Card className="bg-slate-900/50 border-slate-800">
-                    <CardContent className="pt-6 space-y-4">
-                      {[1, 2, 3, 4, 5].map((i) => (
-                        <Skeleton key={i} className="h-12 w-full bg-slate-800 rounded-lg" />
-                      ))}
-                    </CardContent>
-                  </Card>
-                </div>
-              </motion.div>
-            )}
-
-            {mutation.isError && (
-              <motion.div
-                key="error"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="space-y-6"
-              >
-                <Alert variant="destructive" className="bg-rose-500/10 border-rose-500/20 text-rose-400">
-                  <AlertCircle className="h-5 w-5" />
-                  <AlertTitle>Generation Failed</AlertTitle>
-                  <AlertDescription className="mt-2 text-rose-400/80">
-                    {errorMessage}
-                  </AlertDescription>
-                </Alert>
-                <Button 
-                  onClick={() => form.handleSubmit(onSubmit)()}
-                  variant="outline"
-                  className="border-slate-800 hover:bg-slate-800"
+                <Button
+                  type="submit"
+                  disabled={mutation.isPending}
+                  className="w-full h-10 bg-blue-600 hover:bg-blue-500 text-white font-bold transition-all shadow-lg"
+                  data-testid="btn-generate"
                 >
-                  <RotateCcw className="w-4 h-4 mr-2" />
-                  Retry Generation
+                  {mutation.isPending ? (
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                      <span className="text-xs">{LOADING_PHRASES[loadingPhraseIndex]}</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <Zap className="w-3.5 h-3.5 fill-current" />
+                      Generate Keywords
+                    </div>
+                  )}
                 </Button>
-              </motion.div>
-            )}
+              </form>
+            </Form>
+          </aside>
 
-            {mutation.data && !mutation.isPending && (
-              <motion.div
-                key="results"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="space-y-8"
-              >
-                {/* Results Toolbar */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <h2 className="text-xl font-bold flex items-center gap-2">
-                    <LayoutDashboard className="w-5 h-5 text-blue-400" />
-                    Targeting Analysis
-                  </h2>
-                  <div className="flex items-center gap-2">
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      onClick={copyAllKeywords}
-                      className="border-slate-800 bg-slate-900 hover:bg-slate-800 h-9"
-                    >
-                      <Copy className="w-3.5 h-3.5 mr-2" />
-                      Copy All
-                    </Button>
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      onClick={exportCSV}
-                      className="border-slate-800 bg-slate-900 hover:bg-slate-800 h-9"
-                    >
-                      <Download className="w-3.5 h-3.5 mr-2" />
-                      Export CSV
-                    </Button>
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
-                      onClick={handleReset}
-                      className="text-slate-400 hover:text-white h-9"
-                    >
-                      <RotateCcw className="w-3.5 h-3.5 mr-2" />
-                      Reset
-                    </Button>
+          {/* Right Content Area */}
+          <section className="min-w-0 bg-slate-950/20">
+            <AnimatePresence mode="wait">
+              {!mutation.data && !mutation.isPending && (
+                <motion.div
+                  key="empty"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="h-full flex flex-col items-center justify-center p-12 text-center"
+                >
+                  <div className="w-16 h-16 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center mb-6">
+                    <Search className="w-8 h-8 text-slate-600" />
                   </div>
-                </div>
+                  <h2 className="text-xl font-bold text-slate-200 mb-2">Ready to Analyze</h2>
+                  <p className="text-sm text-slate-500 max-w-sm">
+                    Enter Amazon ASINs on the left to generate conversion-optimized keywords and competitor targets.
+                  </p>
+                </motion.div>
+              )}
 
-                {/* Resolved Title Banner */}
-                <div className="p-5 bg-gradient-to-r from-blue-600/10 to-transparent border border-blue-500/20 rounded-xl flex items-center justify-between gap-4">
-                  <div className="flex-1 overflow-hidden">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-blue-400 mb-1">Generating keywords for:</p>
-                    <h3 className="text-lg font-medium text-slate-100 truncate">{mutation.data.resolvedTitle}</h3>
+              {mutation.isPending && (
+                <motion.div
+                  key="loading"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="p-8 space-y-6"
+                >
+                  <div className="h-10 w-64 bg-slate-900 animate-pulse rounded" />
+                  <div className="space-y-4">
+                    {[1, 2].map(i => (
+                      <div key={i} className="h-48 w-full bg-slate-900 animate-pulse rounded-xl border border-slate-800" />
+                    ))}
                   </div>
-                  <Button 
-                    variant="ghost" 
-                    size="icon" 
-                    onClick={() => copyToClipboard(mutation.data!.resolvedTitle, "resolved-title", "Product title")}
-                    className="shrink-0 text-blue-400 hover:bg-blue-500/10"
-                  >
-                    {copiedId === "resolved-title" ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                  </Button>
-                </div>
+                </motion.div>
+              )}
 
-                {/* Keyword Groups */}
-                <div className="grid grid-cols-1 gap-6">
-                  <KeywordGroup
-                    title="High Intent"
-                    icon={Target}
-                    color="orange"
-                    keywords={mutation.data.keywords.filter(k => k.type === "High Intent")}
-                    copiedId={copiedId}
-                    onCopyKeyword={(val, id) => copyToClipboard(val, id, "Keyword")}
-                    onCopyAll={(text) => copyToClipboard(text, "group-high", "High intent group")}
-                  />
-                  <KeywordGroup
-                    title="Core Keywords"
-                    icon={Layers}
-                    color="blue"
-                    keywords={mutation.data.keywords.filter(k => k.type === "Core")}
-                    copiedId={copiedId}
-                    onCopyKeyword={(val, id) => copyToClipboard(val, id, "Keyword")}
-                    onCopyAll={(text) => copyToClipboard(text, "group-core", "Core group")}
-                  />
-                  <KeywordGroup
-                    title="Long-Tail Keywords"
-                    icon={Sparkles}
-                    color="emerald"
-                    keywords={mutation.data.keywords.filter(k => k.type === "Long Tail")}
-                    copiedId={copiedId}
-                    onCopyKeyword={(val, id) => copyToClipboard(val, id, "Keyword")}
-                    onCopyAll={(text) => copyToClipboard(text, "group-long", "Long tail group")}
-                  />
+              {mutation.data && (
+                <motion.div
+                  key="results"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="flex flex-col h-full"
+                >
+                  {/* Sticky Results Toolbar */}
+                  <div className="sticky top-14 z-40 bg-slate-950/60 backdrop-blur-md border-b border-slate-800 px-6 py-3 flex items-center justify-between">
+                    <div className="flex items-center gap-4 text-xs">
+                      <div className="flex flex-col">
+                        <span className="text-slate-500 uppercase tracking-tighter text-[9px] font-bold">Products</span>
+                        <span className="font-mono tabular-nums">{mutation.data.items.length}</span>
+                      </div>
+                      <div className="w-px h-6 bg-slate-800" />
+                      <div className="flex flex-col">
+                        <span className="text-slate-500 uppercase tracking-tighter text-[9px] font-bold">Keywords</span>
+                        <span className="font-mono tabular-nums">{totalKws}</span>
+                      </div>
+                      <div className="w-px h-6 bg-slate-800" />
+                      <div className="flex flex-col">
+                        <span className="text-slate-500 uppercase tracking-tighter text-[9px] font-bold">Targets</span>
+                        <span className="font-mono tabular-nums">{totalTargets}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button variant="outline" size="sm" className="h-8 text-xs border-slate-800 bg-slate-900 hover:bg-slate-800" onClick={copyAllKeywords} data-testid="btn-copy-all">
+                        {copiedId === "copy-all" ? <Check className="w-3 h-3 mr-1.5" /> : <Copy className="w-3 h-3 mr-1.5" />}
+                        Copy all
+                      </Button>
+                      <Button variant="outline" size="sm" className="h-8 text-xs border-slate-800 bg-slate-900 hover:bg-slate-800" onClick={exportCSV} data-testid="btn-export-csv">
+                        <Download className="w-3 h-3 mr-1.5" />
+                        Export CSV
+                      </Button>
+                      <Button variant="ghost" size="sm" className="h-8 text-xs text-slate-500 hover:text-white" onClick={handleReset} data-testid="btn-reset">
+                        <RotateCcw className="w-3 h-3 mr-1.5" />
+                        New search
+                      </Button>
+                    </div>
+                  </div>
 
-                  {/* Competitor ASINs */}
-                  <Card className="bg-slate-900/50 border-slate-800 overflow-hidden">
-                    <CardHeader className="flex flex-row items-center justify-between border-b border-slate-800/50 bg-slate-800/20 py-4">
-                      <CardTitle className="text-sm font-bold flex items-center gap-2">
-                        <Search className="w-4 h-4 text-slate-400" />
-                        Competitor ASINs
-                      </CardTitle>
-                      {mutation.data.competitor_asins.length > 0 && (
-                        <Button 
-                          variant="ghost" 
-                          size="sm" 
-                          className="text-xs h-7 text-slate-400"
-                          onClick={() => copyToClipboard(mutation.data!.competitor_asins.join("\n"), "asin-list", "ASIN list")}
-                        >
-                          <Copy className="w-3 h-3 mr-2" />
-                          Copy List
-                        </Button>
-                      )}
-                    </CardHeader>
-                    <CardContent className="pt-6">
-                      {mutation.data.competitor_asins.length === 0 ? (
-                        <p className="text-center py-6 text-slate-500 text-sm">
-                          Could not fetch competitor ASINs from Amazon — try again in a moment.
-                        </p>
-                      ) : (
-                        <div className="space-y-3">
-                          {mutation.data.competitor_asins.map((asin, idx) => (
-                            <div 
-                              key={asin} 
-                              className="group flex items-center justify-between p-3 rounded-lg bg-slate-950 border border-slate-800 hover:border-slate-700 transition-colors"
-                            >
-                              <div className="flex items-center gap-4">
-                                <span className="w-6 h-6 rounded bg-slate-800 flex items-center justify-center text-[10px] font-bold text-slate-400">
-                                  {idx + 1}
+                  <div className="p-6 space-y-4">
+                    {mutation.data.items.length === 1 ? (
+                      <ResultCard item={mutation.data.items[0]} index={0} />
+                    ) : (
+                      <Accordion type="single" collapsible defaultValue="item-0" className="space-y-3">
+                        {mutation.data.items.map((item, idx) => (
+                          <AccordionItem key={idx} value={`item-${idx}`} className="border-none">
+                            <AccordionTrigger className="flex p-3 bg-slate-900/40 hover:bg-slate-900/60 rounded-lg border border-slate-800 transition-all [&[data-state=open]]:rounded-b-none [&[data-state=open]]:border-b-0 hover:no-underline">
+                              <div className="flex items-center gap-3 text-left min-w-0 pr-4">
+                                <Badge variant="outline" className="font-mono text-[10px] shrink-0 bg-slate-950 border-slate-700">
+                                  {item.asin || "TITLE"}
+                                </Badge>
+                                <span className="text-sm font-medium truncate text-slate-300">
+                                  {item.title}
                                 </span>
-                                <span className="font-mono text-sm tracking-widest text-slate-300">{asin}</span>
                               </div>
-                              <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8 text-slate-400 hover:text-white"
-                                  onClick={() => copyToClipboard(asin, `asin-${idx}`, "ASIN")}
-                                  data-testid={`btn-copy-asin-${idx}`}
-                                >
-                                  {copiedId === `asin-${idx}` ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8 text-slate-400 hover:text-white"
-                                  asChild
-                                >
-                                  <a href={`https://www.amazon.com/dp/${asin}`} target="_blank" rel="noopener noreferrer">
-                                    <ExternalLink className="w-3.5 h-3.5" />
-                                  </a>
-                                </Button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </section>
-      </main>
-    </div>
+                            </AccordionTrigger>
+                            <AccordionContent className="bg-slate-900/20 border border-slate-800 border-t-0 rounded-b-lg p-0">
+                              <ResultCard item={item} index={idx} noBorder />
+                            </AccordionContent>
+                          </AccordionItem>
+                        ))}
+                      </Accordion>
+                    )}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </section>
+        </main>
+      </div>
+    </TooltipProvider>
   );
 }
 
-interface KeywordGroupProps {
-  title: string;
-  icon: any;
-  color: "orange" | "blue" | "emerald";
-  keywords: { value: string }[];
-  copiedId: string | null;
-  onCopyKeyword: (val: string, id: string) => void;
-  onCopyAll: (text: string) => void;
-}
+function ResultCard({ item, index, noBorder }: { item: any, index: number, noBorder?: boolean }) {
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
-const colorMap = {
-  orange: "text-orange-400 border-orange-500/20 bg-orange-500/5",
-  blue: "text-blue-400 border-blue-500/20 bg-blue-500/5",
-  emerald: "text-emerald-400 border-emerald-500/20 bg-emerald-500/5",
-};
+  const copy = (val: string, id: string) => {
+    navigator.clipboard.writeText(val);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 1500);
+  };
 
-const iconColorMap = {
-  orange: "text-orange-500",
-  blue: "text-blue-500",
-  emerald: "text-emerald-500",
-};
+  if (item.error) {
+    return (
+      <Card className={cn("bg-rose-500/5 border-rose-500/20", noBorder && "border-none shadow-none bg-transparent")}>
+        <CardContent className="p-4">
+          <div className="flex gap-3">
+            <AlertCircle className="w-5 h-5 text-rose-500 shrink-0" />
+            <div className="space-y-1">
+              <h4 className="text-sm font-bold text-rose-400">Failed to process {item.asin || "product"}</h4>
+              <p className="text-xs text-rose-300/80">{item.error}</p>
+              <Badge variant="outline" className="mt-2 border-rose-500/30 text-rose-400 text-[10px]">SKIPPED</Badge>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
 
-function KeywordGroup({ title, icon: Icon, color, keywords, copiedId, onCopyKeyword, onCopyAll }: KeywordGroupProps) {
   return (
-    <Card className="bg-slate-900/50 border-slate-800 overflow-hidden">
-      <CardHeader className="flex flex-row items-center justify-between border-b border-slate-800/50 bg-slate-800/20 py-4">
-        <CardTitle className="text-sm font-bold flex items-center gap-2">
-          <Icon className={cn("w-4 h-4", iconColorMap[color])} />
-          {title}
-          <Badge variant="secondary" className="bg-slate-800 text-slate-400 ml-2 border-slate-700">
-            {keywords.length}
-          </Badge>
-        </CardTitle>
-        <Button 
-          variant="ghost" 
-          size="sm" 
-          className="text-xs h-7 text-slate-400"
-          onClick={() => onCopyAll(keywords.map(k => k.value).join("\n"))}
-        >
-          <Copy className="w-3 h-3 mr-2" />
-          Copy All
-        </Button>
-      </CardHeader>
-      <CardContent className="pt-6">
-        <div className="flex flex-wrap gap-2">
-          {keywords.map((keyword, idx) => {
-            const id = `kw-${title}-${idx}`;
-            return (
-              <motion.button
-                key={keyword.value}
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: idx * 0.03 }}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={() => onCopyKeyword(keyword.value, id)}
-                className={cn(
-                  "flex items-center gap-2 px-3 py-2 rounded-full border text-sm transition-all",
-                  colorMap[color],
-                  "hover:border-white/20 hover:bg-white/5"
-                )}
-                data-testid={`chip-keyword-${idx}`}
+    <Card className={cn("bg-slate-900/40 border-slate-800 overflow-hidden", noBorder && "border-none shadow-none bg-transparent")}>
+      <CardContent className="p-4 space-y-6">
+        {/* Header Strip */}
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="font-mono text-xs text-blue-400 font-bold tracking-widest">{item.asin || "N/A"}</span>
+              {item.detectedBrand && (
+                <Badge className="bg-blue-500/10 text-blue-400 border-blue-500/20 text-[10px] py-0 h-4">
+                  Brand: {item.detectedBrand}
+                </Badge>
+              )}
+            </div>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <h3 className="text-sm font-semibold text-slate-100 truncate cursor-help">
+                  {item.title}
+                </h3>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs bg-slate-900 border-slate-800 text-xs">
+                {item.title}
+              </TooltipContent>
+            </Tooltip>
+          </div>
+          {item.asin && (
+            <a 
+              href={`https://www.amazon.com/dp/${item.asin}`} 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 text-[10px] text-slate-500 hover:text-blue-400 transition-colors whitespace-nowrap"
+            >
+              View on Amazon <ExternalLink className="w-2.5 h-2.5" />
+            </a>
+          )}
+        </div>
+
+        {/* Keywords Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <KeywordSection 
+            label="High Intent" 
+            keywords={item.keywords.filter((k: any) => k.type === "High Intent")}
+            borderColor="border-amber-500/50"
+            itemIndex={index}
+            sectionIdx={0}
+            onCopy={copy}
+            copiedId={copiedId}
+          />
+          <KeywordSection 
+            label="Core" 
+            keywords={item.keywords.filter((k: any) => k.type === "Core")}
+            borderColor="border-blue-500/50"
+            itemIndex={index}
+            sectionIdx={1}
+            onCopy={copy}
+            copiedId={copiedId}
+          />
+          <KeywordSection 
+            label="Long-Tail" 
+            keywords={item.keywords.filter((k: any) => k.type === "Long Tail")}
+            borderColor="border-emerald-500/50"
+            itemIndex={index}
+            sectionIdx={2}
+            onCopy={copy}
+            copiedId={copiedId}
+          />
+        </div>
+
+        {/* Competitor Targets */}
+        <div className="space-y-3 pt-2">
+          <div className="flex items-center justify-between">
+            <h4 className="text-[10px] font-bold uppercase tracking-widest text-slate-500 flex items-center gap-1.5">
+              <Search className="w-3 h-3" />
+              Competitor Targets
+            </h4>
+            {item.competitor_asins.length > 0 && (
+              <button 
+                onClick={() => copy(item.competitor_asins.join("\n"), `targets-${index}`)}
+                className="text-[10px] text-slate-500 hover:text-white flex items-center gap-1"
               >
-                <span>{keyword.value}</span>
-                {copiedId === id ? (
-                  <Check className="w-3 h-3 text-emerald-500" />
-                ) : (
-                  <Copy className="w-3 h-3 opacity-0 group-hover:opacity-100" />
-                )}
-              </motion.button>
-            );
-          })}
+                {copiedId === `targets-${index}` ? <Check className="w-2.5 h-2.5" /> : <Copy className="w-2.5 h-2.5" />}
+                Copy all
+              </button>
+            )}
+          </div>
+          
+          {item.competitor_asins.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {item.competitor_asins.map((asin: string, idx: number) => (
+                <div key={asin} className="flex items-center bg-slate-950 border border-slate-800 rounded px-2 py-1 group">
+                  <span className="text-[9px] font-bold text-slate-600 mr-2">{idx + 1}</span>
+                  <span className="font-mono text-xs text-slate-300 tracking-wider mr-2">{asin}</span>
+                  <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button 
+                      onClick={() => copy(asin, `asin-${index}-${idx}`)}
+                      className="text-slate-500 hover:text-blue-400"
+                      data-testid={`btn-asin-${index}-${idx}`}
+                    >
+                      {copiedId === `asin-${index}-${idx}` ? <Check className="w-2.5 h-2.5" /> : <Copy className="w-2.5 h-2.5" />}
+                    </button>
+                    <a href={`https://www.amazon.com/dp/${asin}`} target="_blank" rel="noopener noreferrer" className="text-slate-500 hover:text-blue-400">
+                      <ExternalLink className="w-2.5 h-2.5" />
+                    </a>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-[11px] text-slate-600 italic">No competitor ASINs found from Amazon search — try again.</p>
+          )}
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function KeywordSection({ label, keywords, borderColor, itemIndex, sectionIdx, onCopy, copiedId }: any) {
+  return (
+    <div className={cn("bg-slate-950/40 border-l-2 p-2.5 rounded-r-lg space-y-3", borderColor)}>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500">{label}</span>
+          <Badge className="bg-slate-900 text-slate-400 text-[9px] py-0 h-3.5 px-1.5 font-mono">{keywords.length}</Badge>
+        </div>
+        <button 
+          onClick={() => onCopy(keywords.map((k: any) => k.value).join("\n"), `sec-${itemIndex}-${sectionIdx}`)}
+          className="text-slate-500 hover:text-white transition-colors"
+        >
+          {copiedId === `sec-${itemIndex}-${sectionIdx}` ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+        </button>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {keywords.map((kw: any, idx: number) => (
+          <motion.button
+            key={idx}
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ delay: idx * 0.02 }}
+            onClick={() => onCopy(kw.value, `kw-${itemIndex}-${sectionIdx}-${idx}`)}
+            className="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-[10px] text-slate-400 hover:text-white hover:border-slate-700 transition-all flex items-center gap-1.5 group"
+            data-testid={`chip-kw-${itemIndex}-${idx}`}
+          >
+            {kw.value}
+            {copiedId === `kw-${itemIndex}-${sectionIdx}-${idx}` && <Check className="w-2.5 h-2.5 text-emerald-400" />}
+          </motion.button>
+        ))}
+      </div>
+    </div>
   );
 }

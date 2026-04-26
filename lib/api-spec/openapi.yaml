@@ -112,20 +112,23 @@ components:
         - error
     GenerateKeywordsRequest:
       type: object
-      description: Provide product title OR ASIN (at least one). If only ASIN is given, the title is fetched from Amazon.
+      description: Provide one or more ASINs (preferred) or a single product title.
       properties:
+        asins:
+          type: array
+          nullable: true
+          maxItems: 15
+          items:
+            type: string
+          description: List of Amazon ASINs (up to 15). Each ASIN must be 10 chars and start with B0.
         title:
           type: string
           nullable: true
-          description: Product title (optional if asin provided)
-        asin:
-          type: string
-          nullable: true
-          description: Amazon ASIN (10 chars, starts with B0). Used to look up the title automatically when title is empty.
+          description: Single product title. Used only if asins is empty.
         brand:
           type: string
           nullable: true
-          description: Optional brand name
+          description: Optional brand override applied to all items
         category:
           type: string
           nullable: true
@@ -145,12 +148,20 @@ components:
       required:
         - type
         - value
-    KeywordResult:
+    KeywordResultItem:
       type: object
       properties:
-        resolvedTitle:
+        asin:
           type: string
-          description: The product title used for generation (resolved from ASIN if needed)
+          nullable: true
+          description: The input ASIN (if generated from an ASIN)
+        title:
+          type: string
+          description: The product title used for generation
+        detectedBrand:
+          type: string
+          nullable: true
+          description: The user's brand detected from the product page (used to exclude same-brand competitors)
         keywords:
           type: array
           items:
@@ -159,10 +170,23 @@ components:
           type: array
           items:
             type: string
+        error:
+          type: string
+          nullable: true
+          description: Error message if this item failed
       required:
-        - resolvedTitle
+        - title
         - keywords
         - competitor_asins
+    KeywordResult:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/KeywordResultItem"
+      required:
+        - items
     AsinLookupResponse:
       type: object
       properties:
@@ -170,6 +194,9 @@ components:
           type: string
         title:
           type: string
+        brand:
+          type: string
+          nullable: true
       required:
         - asin
         - title

@@ -12,5 +12,6 @@ export * from "./generateKeywordsRequest";
 export * from "./healthStatus";
 export * from "./keyword";
 export * from "./keywordResult";
+export * from "./keywordResultItem";
 export * from "./keywordType";
 export * from "./lookupAsinParams";

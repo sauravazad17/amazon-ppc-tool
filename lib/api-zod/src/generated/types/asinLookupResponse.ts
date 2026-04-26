@@ -9,4 +9,5 @@
 export interface AsinLookupResponse {
   asin: string;
   title: string;
+  brand?: string | null;
 }

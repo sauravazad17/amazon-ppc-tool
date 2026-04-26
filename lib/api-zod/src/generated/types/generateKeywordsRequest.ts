@@ -7,14 +7,17 @@
  */
 
 /**
- * Provide product title OR ASIN (at least one). If only ASIN is given, the title is fetched from Amazon.
+ * Provide one or more ASINs (preferred) or a single product title.
  */
 export interface GenerateKeywordsRequest {
-  /** Product title (optional if asin provided) */
+  /**
+   * List of Amazon ASINs (up to 15). Each ASIN must be 10 chars and start with B0.
+   * @maxItems 15
+   */
+  asins?: string[] | null;
+  /** Single product title. Used only if asins is empty. */
   title?: string | null;
-  /** Amazon ASIN (10 chars, starts with B0). Used to look up the title automatically when title is empty. */
-  asin?: string | null;
-  /** Optional brand name */
+  /** Optional brand override applied to all items */
   brand?: string | null;
   /** Optional product category */
   category?: string | null;

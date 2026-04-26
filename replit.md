@@ -28,8 +28,9 @@ Hosts the **Amazon PPC Keyword Generator** — a web tool for Amazon sellers / P
 
 ## Artifacts
 
-- `artifacts/ppc-keyword-generator` — React + Vite frontend at `/`. Single-page tool. Uses `useGenerateKeywords` mutation from `@workspace/api-client-react`.
-- `artifacts/api-server` — Express API at `/api`. Route `POST /api/keywords/generate` calls OpenAI (gpt-5.4) with the senior-PPC-expert system prompt and validates the JSON output via Zod (`GenerateKeywordsResponse`).
+- `artifacts/ppc-keyword-generator` — React + Vite frontend at `/`. Batch ASIN tool: paste up to 15 ASINs (or one product title), get keywords + competitor ASINs per item, export as 2-col `ASIN,Keyword/Target` CSV.
+- `artifacts/api-server` — Express API at `/api`. `POST /api/keywords/generate` accepts `{ asins?: string[], title?: string, brand?, category?, priceRange? }`. For each ASIN it scrapes amazon.com/dp/{ASIN} for the title + brand, asks OpenAI (gpt-5.4) with the strict senior-PPC-expert prompt for 30 keywords, then scrapes amazon.com/s for 5 real competitor ASINs filtered to exclude the user's brand. Concurrency capped at 5. `GET /api/asin/lookup?asin=` resolves a single ASIN to a title.
+- `artifacts/api-server/src/lib/amazon.ts` — Amazon scraper: ASIN parsing/validation, product page title+brand extraction, and search result ASIN+title scraping with same-brand filtering.
 - `artifacts/mockup-sandbox` — design canvas (unused by this product).
 
 ## Integrations

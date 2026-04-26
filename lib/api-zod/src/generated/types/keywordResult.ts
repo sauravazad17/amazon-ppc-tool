@@ -5,11 +5,8 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
-import type { Keyword } from "./keyword";
+import type { KeywordResultItem } from "./keywordResultItem";
 
 export interface KeywordResult {
-  /** The product title used for generation (resolved from ASIN if needed) */
-  resolvedTitle: string;
-  keywords: Keyword[];
-  competitor_asins: string[];
+  items: KeywordResultItem[];
 }
