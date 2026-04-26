@@ -16,25 +16,38 @@ export const HealthCheckResponse = zod.object({
 });
 
 /**
- * Given a product title (and optional brand, category, price), generate 30 high-converting keywords (10 high intent, 10 core, 10 long-tail) plus 5 competitor ASIN targets.
+ * Given a product title (and optional brand, category, price), generate 30 high-converting keywords (10 high intent, 10 core, 10 long-tail) plus 5 real competitor ASIN targets fetched from Amazon search.
  * @summary Generate Amazon PPC keywords and competitor ASINs
  */
-export const generateKeywordsBodyTitleMin = 2;
-
-export const GenerateKeywordsBody = zod.object({
-  title: zod
-    .string()
-    .min(generateKeywordsBodyTitleMin)
-    .describe("Product title"),
-  brand: zod.string().nullish().describe("Optional brand name"),
-  category: zod.string().nullish().describe("Optional product category"),
-  priceRange: zod
-    .string()
-    .nullish()
-    .describe('Optional price range (e.g. \"$20-$30\")'),
-});
+export const GenerateKeywordsBody = zod
+  .object({
+    title: zod
+      .string()
+      .nullish()
+      .describe("Product title (optional if asin provided)"),
+    asin: zod
+      .string()
+      .nullish()
+      .describe(
+        "Amazon ASIN (10 chars, starts with B0). Used to look up the title automatically when title is empty.",
+      ),
+    brand: zod.string().nullish().describe("Optional brand name"),
+    category: zod.string().nullish().describe("Optional product category"),
+    priceRange: zod
+      .string()
+      .nullish()
+      .describe('Optional price range (e.g. \"$20-$30\")'),
+  })
+  .describe(
+    "Provide product title OR ASIN (at least one). If only ASIN is given, the title is fetched from Amazon.",
+  );
 
 export const GenerateKeywordsResponse = zod.object({
+  resolvedTitle: zod
+    .string()
+    .describe(
+      "The product title used for generation (resolved from ASIN if needed)",
+    ),
   keywords: zod.array(
     zod.object({
       type: zod.enum(["High Intent", "Core", "Long Tail"]),
@@ -42,4 +55,16 @@ export const GenerateKeywordsResponse = zod.object({
     }),
   ),
   competitor_asins: zod.array(zod.string()),
+});
+
+/**
+ * @summary Look up an Amazon product title by ASIN
+ */
+export const LookupAsinQueryParams = zod.object({
+  asin: zod.coerce.string(),
+});
+
+export const LookupAsinResponse = zod.object({
+  asin: zod.string(),
+  title: zod.string(),
 });
