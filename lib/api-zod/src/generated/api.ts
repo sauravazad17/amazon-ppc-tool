@@ -19,42 +19,60 @@ export const HealthCheckResponse = zod.object({
  * Given a product title (and optional brand, category, price), generate 30 high-converting keywords (10 high intent, 10 core, 10 long-tail) plus 5 real competitor ASIN targets fetched from Amazon search.
  * @summary Generate Amazon PPC keywords and competitor ASINs
  */
+export const generateKeywordsBodyAsinsMax = 15;
+
 export const GenerateKeywordsBody = zod
   .object({
+    asins: zod
+      .array(zod.string())
+      .max(generateKeywordsBodyAsinsMax)
+      .nullish()
+      .describe(
+        "List of Amazon ASINs (up to 15). Each ASIN must be 10 chars and start with B0.",
+      ),
     title: zod
       .string()
       .nullish()
-      .describe("Product title (optional if asin provided)"),
-    asin: zod
+      .describe("Single product title. Used only if asins is empty."),
+    brand: zod
       .string()
       .nullish()
-      .describe(
-        "Amazon ASIN (10 chars, starts with B0). Used to look up the title automatically when title is empty.",
-      ),
-    brand: zod.string().nullish().describe("Optional brand name"),
+      .describe("Optional brand override applied to all items"),
     category: zod.string().nullish().describe("Optional product category"),
     priceRange: zod
       .string()
       .nullish()
       .describe('Optional price range (e.g. \"$20-$30\")'),
   })
-  .describe(
-    "Provide product title OR ASIN (at least one). If only ASIN is given, the title is fetched from Amazon.",
-  );
+  .describe("Provide one or more ASINs (preferred) or a single product title.");
 
 export const GenerateKeywordsResponse = zod.object({
-  resolvedTitle: zod
-    .string()
-    .describe(
-      "The product title used for generation (resolved from ASIN if needed)",
-    ),
-  keywords: zod.array(
+  items: zod.array(
     zod.object({
-      type: zod.enum(["High Intent", "Core", "Long Tail"]),
-      value: zod.string(),
+      asin: zod
+        .string()
+        .nullish()
+        .describe("The input ASIN (if generated from an ASIN)"),
+      title: zod.string().describe("The product title used for generation"),
+      detectedBrand: zod
+        .string()
+        .nullish()
+        .describe(
+          "The user's brand detected from the product page (used to exclude same-brand competitors)",
+        ),
+      keywords: zod.array(
+        zod.object({
+          type: zod.enum(["High Intent", "Core", "Long Tail"]),
+          value: zod.string(),
+        }),
+      ),
+      competitor_asins: zod.array(zod.string()),
+      error: zod
+        .string()
+        .nullish()
+        .describe("Error message if this item failed"),
     }),
   ),
-  competitor_asins: zod.array(zod.string()),
 });
 
 /**
@@ -67,4 +85,5 @@ export const LookupAsinQueryParams = zod.object({
 export const LookupAsinResponse = zod.object({
   asin: zod.string(),
   title: zod.string(),
+  brand: zod.string().nullish(),
 });
