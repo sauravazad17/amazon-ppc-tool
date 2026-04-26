@@ -17,10 +17,12 @@ import type {
 } from "@tanstack/react-query";
 
 import type {
+  AsinLookupResponse,
   ErrorResponse,
   GenerateKeywordsRequest,
   HealthStatus,
   KeywordResult,
+  LookupAsinParams,
 } from "./api.schemas";
 
 import { customFetch } from "../custom-fetch";
@@ -109,7 +111,7 @@ export function useHealthCheck<
 }
 
 /**
- * Given a product title (and optional brand, category, price), generate 30 high-converting keywords (10 high intent, 10 core, 10 long-tail) plus 5 competitor ASIN targets.
+ * Given a product title (and optional brand, category, price), generate 30 high-converting keywords (10 high intent, 10 core, 10 long-tail) plus 5 real competitor ASIN targets fetched from Amazon search.
  * @summary Generate Amazon PPC keywords and competitor ASINs
  */
 export const getGenerateKeywordsUrl = () => {
@@ -194,3 +196,97 @@ export const useGenerateKeywords = <
 > => {
   return useMutation(getGenerateKeywordsMutationOptions(options));
 };
+
+/**
+ * @summary Look up an Amazon product title by ASIN
+ */
+export const getLookupAsinUrl = (params: LookupAsinParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/asin/lookup?${stringifiedParams}`
+    : `/api/asin/lookup`;
+};
+
+export const lookupAsin = async (
+  params: LookupAsinParams,
+  options?: RequestInit,
+): Promise<AsinLookupResponse> => {
+  return customFetch<AsinLookupResponse>(getLookupAsinUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getLookupAsinQueryKey = (params?: LookupAsinParams) => {
+  return [`/api/asin/lookup`, ...(params ? [params] : [])] as const;
+};
+
+export const getLookupAsinQueryOptions = <
+  TData = Awaited<ReturnType<typeof lookupAsin>>,
+  TError = ErrorType<ErrorResponse>,
+>(
+  params: LookupAsinParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof lookupAsin>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getLookupAsinQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof lookupAsin>>> = ({
+    signal,
+  }) => lookupAsin(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof lookupAsin>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type LookupAsinQueryResult = NonNullable<
+  Awaited<ReturnType<typeof lookupAsin>>
+>;
+export type LookupAsinQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Look up an Amazon product title by ASIN
+ */
+
+export function useLookupAsin<
+  TData = Awaited<ReturnType<typeof lookupAsin>>,
+  TError = ErrorType<ErrorResponse>,
+>(
+  params: LookupAsinParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof lookupAsin>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getLookupAsinQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}

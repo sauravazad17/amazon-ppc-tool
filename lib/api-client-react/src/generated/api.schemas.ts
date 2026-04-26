@@ -13,12 +13,14 @@ export interface ErrorResponse {
   error: string;
 }
 
+/**
+ * Provide product title OR ASIN (at least one). If only ASIN is given, the title is fetched from Amazon.
+ */
 export interface GenerateKeywordsRequest {
-  /**
-   * Product title
-   * @minLength 2
-   */
-  title: string;
+  /** Product title (optional if asin provided) */
+  title?: string | null;
+  /** Amazon ASIN (10 chars, starts with B0). Used to look up the title automatically when title is empty. */
+  asin?: string | null;
   /** Optional brand name */
   brand?: string | null;
   /** Optional product category */
@@ -41,6 +43,20 @@ export interface Keyword {
 }
 
 export interface KeywordResult {
+  /** The product title used for generation (resolved from ASIN if needed) */
+  resolvedTitle: string;
   keywords: Keyword[];
   competitor_asins: string[];
 }
+
+export interface AsinLookupResponse {
+  asin: string;
+  title: string;
+}
+
+export type LookupAsinParams = {
+  /**
+   * 10-character ASIN, e.g. B07FZ8S74R
+   */
+  asin: string;
+};

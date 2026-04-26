@@ -8,6 +8,8 @@
 import type { Keyword } from "./keyword";
 
 export interface KeywordResult {
+  /** The product title used for generation (resolved from ASIN if needed) */
+  resolvedTitle: string;
   keywords: Keyword[];
   competitor_asins: string[];
 }

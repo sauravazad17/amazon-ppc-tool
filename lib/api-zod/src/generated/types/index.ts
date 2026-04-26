@@ -6,9 +6,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from "./asinLookupResponse";
 export * from "./errorResponse";
 export * from "./generateKeywordsRequest";
 export * from "./healthStatus";
 export * from "./keyword";
 export * from "./keywordResult";
 export * from "./keywordType";
+export * from "./lookupAsinParams";
