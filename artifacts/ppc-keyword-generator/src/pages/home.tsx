@@ -562,16 +562,9 @@ function ResultCard({ item, index, noBorder }: { item: any, index: number, noBor
                 </Badge>
               )}
             </div>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <h3 className="text-sm font-semibold text-slate-100 line-clamp-1 cursor-help leading-tight">
-                  {item.title}
-                </h3>
-              </TooltipTrigger>
-              <TooltipContent className="max-w-xs bg-slate-900 border-slate-800 text-xs text-slate-200">
-                {item.title}
-              </TooltipContent>
-            </Tooltip>
+            <h3 className="text-sm font-semibold text-slate-100 leading-snug break-words">
+              {item.title}
+            </h3>
           </div>
           {item.asin && (
             <a 
