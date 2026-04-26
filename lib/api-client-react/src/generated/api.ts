@@ -5,18 +5,26 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import type {
+  MutationFunction,
   QueryFunction,
   QueryKey,
+  UseMutationOptions,
+  UseMutationResult,
   UseQueryOptions,
   UseQueryResult,
 } from "@tanstack/react-query";
 
-import type { HealthStatus } from "./api.schemas";
+import type {
+  ErrorResponse,
+  GenerateKeywordsRequest,
+  HealthStatus,
+  KeywordResult,
+} from "./api.schemas";
 
 import { customFetch } from "../custom-fetch";
-import type { ErrorType } from "../custom-fetch";
+import type { ErrorType, BodyType } from "../custom-fetch";
 
 type AwaitedInput<T> = PromiseLike<T> | T;
 
@@ -99,3 +107,90 @@ export function useHealthCheck<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * Given a product title (and optional brand, category, price), generate 30 high-converting keywords (10 high intent, 10 core, 10 long-tail) plus 5 competitor ASIN targets.
+ * @summary Generate Amazon PPC keywords and competitor ASINs
+ */
+export const getGenerateKeywordsUrl = () => {
+  return `/api/keywords/generate`;
+};
+
+export const generateKeywords = async (
+  generateKeywordsRequest: GenerateKeywordsRequest,
+  options?: RequestInit,
+): Promise<KeywordResult> => {
+  return customFetch<KeywordResult>(getGenerateKeywordsUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(generateKeywordsRequest),
+  });
+};
+
+export const getGenerateKeywordsMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof generateKeywords>>,
+    TError,
+    { data: BodyType<GenerateKeywordsRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof generateKeywords>>,
+  TError,
+  { data: BodyType<GenerateKeywordsRequest> },
+  TContext
+> => {
+  const mutationKey = ["generateKeywords"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof generateKeywords>>,
+    { data: BodyType<GenerateKeywordsRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return generateKeywords(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type GenerateKeywordsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof generateKeywords>>
+>;
+export type GenerateKeywordsMutationBody = BodyType<GenerateKeywordsRequest>;
+export type GenerateKeywordsMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Generate Amazon PPC keywords and competitor ASINs
+ */
+export const useGenerateKeywords = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof generateKeywords>>,
+    TError,
+    { data: BodyType<GenerateKeywordsRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof generateKeywords>>,
+  TError,
+  { data: BodyType<GenerateKeywordsRequest> },
+  TContext
+> => {
+  return useMutation(getGenerateKeywordsMutationOptions(options));
+};

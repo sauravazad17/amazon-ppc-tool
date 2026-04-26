@@ -10,6 +10,8 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: keywords
+    description: Amazon PPC keyword and ASIN generation
 paths:
   /healthz:
     get:
@@ -24,6 +26,37 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /keywords/generate:
+    post:
+      operationId: generateKeywords
+      tags: [keywords]
+      summary: Generate Amazon PPC keywords and competitor ASINs
+      description: Given a product title (and optional brand, category, price), generate 30 high-converting keywords (10 high intent, 10 core, 10 long-tail) plus 5 competitor ASIN targets.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateKeywordsRequest"
+      responses:
+        "200":
+          description: Generated keywords and competitor ASINs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KeywordResult"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Generation failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 components:
   schemas:
     HealthStatus:
@@ -33,4 +66,56 @@ components:
           type: string
       required:
         - status
-
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
+    GenerateKeywordsRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 2
+          description: Product title
+        brand:
+          type: string
+          nullable: true
+          description: Optional brand name
+        category:
+          type: string
+          nullable: true
+          description: Optional product category
+        priceRange:
+          type: string
+          nullable: true
+          description: Optional price range (e.g. "$20-$30")
+      required:
+        - title
+    Keyword:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: ["High Intent", "Core", "Long Tail"]
+        value:
+          type: string
+      required:
+        - type
+        - value
+    KeywordResult:
+      type: object
+      properties:
+        keywords:
+          type: array
+          items:
+            $ref: "#/components/schemas/Keyword"
+        competitor_asins:
+          type: array
+          items:
+            type: string
+      required:
+        - keywords
+        - competitor_asins

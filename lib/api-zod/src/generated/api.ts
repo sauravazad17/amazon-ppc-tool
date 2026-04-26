@@ -14,3 +14,32 @@ import * as zod from "zod";
 export const HealthCheckResponse = zod.object({
   status: zod.string(),
 });
+
+/**
+ * Given a product title (and optional brand, category, price), generate 30 high-converting keywords (10 high intent, 10 core, 10 long-tail) plus 5 competitor ASIN targets.
+ * @summary Generate Amazon PPC keywords and competitor ASINs
+ */
+export const generateKeywordsBodyTitleMin = 2;
+
+export const GenerateKeywordsBody = zod.object({
+  title: zod
+    .string()
+    .min(generateKeywordsBodyTitleMin)
+    .describe("Product title"),
+  brand: zod.string().nullish().describe("Optional brand name"),
+  category: zod.string().nullish().describe("Optional product category"),
+  priceRange: zod
+    .string()
+    .nullish()
+    .describe('Optional price range (e.g. \"$20-$30\")'),
+});
+
+export const GenerateKeywordsResponse = zod.object({
+  keywords: zod.array(
+    zod.object({
+      type: zod.enum(["High Intent", "Core", "Long Tail"]),
+      value: zod.string(),
+    }),
+  ),
+  competitor_asins: zod.array(zod.string()),
+});

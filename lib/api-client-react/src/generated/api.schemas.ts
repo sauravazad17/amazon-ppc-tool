@@ -8,3 +8,39 @@
 export interface HealthStatus {
   status: string;
 }
+
+export interface ErrorResponse {
+  error: string;
+}
+
+export interface GenerateKeywordsRequest {
+  /**
+   * Product title
+   * @minLength 2
+   */
+  title: string;
+  /** Optional brand name */
+  brand?: string | null;
+  /** Optional product category */
+  category?: string | null;
+  /** Optional price range (e.g. "$20-$30") */
+  priceRange?: string | null;
+}
+
+export type KeywordType = (typeof KeywordType)[keyof typeof KeywordType];
+
+export const KeywordType = {
+  High_Intent: "High Intent",
+  Core: "Core",
+  Long_Tail: "Long Tail",
+} as const;
+
+export interface Keyword {
+  type: KeywordType;
+  value: string;
+}
+
+export interface KeywordResult {
+  keywords: Keyword[];
+  competitor_asins: string[];
+}
