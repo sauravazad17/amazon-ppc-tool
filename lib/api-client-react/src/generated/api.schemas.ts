@@ -45,6 +45,20 @@ export interface Keyword {
   value: string;
 }
 
+/**
+ * Distilled understanding of the product
+ */
+export interface ProductAnalysis {
+  /** The 1-3 word core product type (e.g. "Electric Toothbrush") */
+  coreProduct: string;
+  /** Key product attributes detected (size, color, material, capacity, features) */
+  attributes: string[];
+  /** Primary use case */
+  useCase?: string | null;
+  /** Target audience or shopper persona */
+  audience?: string | null;
+}
+
 export interface KeywordResultItem {
   /** The input ASIN (if generated from an ASIN) */
   asin?: string | null;
@@ -52,6 +66,7 @@ export interface KeywordResultItem {
   title: string;
   /** The user's brand detected from the product page (used to exclude same-brand competitors) */
   detectedBrand?: string | null;
+  analysis?: ProductAnalysis;
   keywords: Keyword[];
   competitor_asins: string[];
   /** Error message if this item failed */

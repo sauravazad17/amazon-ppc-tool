@@ -2,86 +2,154 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { GenerateKeywordsBody, GenerateKeywordsResponse } from "@workspace/api-zod";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import {
+  brandFromTitle,
+  brandsMatch,
   getProductInfoByAsin,
   isValidAsin,
-  searchCompetitorAsins,
+  normalizeBrand,
+  searchCompetitorHits,
+  type SearchHit,
 } from "../lib/amazon";
 
 const router: IRouter = Router();
 
 const MAX_BATCH = 15;
 const CONCURRENCY = 5;
+const MODEL = "gpt-5.4";
 
-const SYSTEM_PROMPT = `You are a senior Amazon PPC expert focused on maximizing conversions and sales for an experienced Amazon seller.
+const SYSTEM_PROMPT = `You are a senior Amazon PPC expert with 10+ years optimizing campaigns for top sellers. You think like an Amazon shopper AND a conversion-focused PPC manager.
 
-Your task is to generate ONLY the highest-quality, most-converting Amazon ad keywords. Quality > quantity philosophy. Every single keyword must be one a serious PPC manager would bid on with their own money.
+Your task: deeply understand a product, then generate ONLY the highest-converting Amazon ad keywords.
 
-STEP 1: Understand the product
-- Identify product type, sub-category, main use-case, and target audience
-- Identify buying intent triggers (budget, premium, durability, daily use, etc.)
-- Identify the key product attributes shoppers actually search for
+============================
+STEP 1: DISTILL THE PRODUCT
+============================
+Amazon titles are long and SEO-stuffed. Your first job is to mentally strip the noise and identify what the product ACTUALLY is.
 
-STEP 2: Generate EXACTLY 30 keywords divided into 3 groups:
+Extract the following:
+- coreProduct: The 1-3 word universal product type a shopper would type in Amazon search. NOT the brand. NOT the variant. The category noun.
+  Examples:
+    "Oral-B Rechargeable Electric Toothbrush, iO5 Limited Deep Clean & Whiten, 5 Modes…" → "Electric Toothbrush"
+    "Stanley Quencher H2.0 FlowState Stainless Steel Vacuum Insulated Tumbler 40oz Pink" → "Tumbler" (or "Insulated Tumbler")
+    "Apple AirPods Pro (2nd Gen) Wireless Earbuds, Active Noise Cancelling…" → "Wireless Earbuds"
+- attributes: 3-7 short tags pulled from the title that shoppers actually filter on. Examples: ["rechargeable", "5 modes", "pressure sensor", "travel case"], ["40oz", "stainless steel", "vacuum insulated", "pink"], ["noise cancelling", "spatial audio", "wireless", "iphone"].
+- useCase: One short phrase: who uses it, when, why. e.g. "daily oral care at home and travel".
+- audience: Who buys it. e.g. "adults wanting whiter teeth", "office workers", "gym-goers".
 
-1. High Intent (10 keywords)
-- Strong buying intent, ready-to-buy shoppers
-- 2-4 words only
-- Style: "best <product>", "<feature> <product>", "<size> <product>" — natural Amazon search behavior
-- AVOID generic words like "buy", "cheap", "deal", "sale" unless extremely natural
+============================
+STEP 2: GENERATE 30 KEYWORDS
+============================
+Now generate keywords using your distilled understanding. Anchor every keyword on the coreProduct + attributes you identified. Do NOT generate keywords about features that aren't in the title.
 
-2. Core Keywords (10 keywords)
-- Main product keywords used by Amazon shoppers
-- STRICT: 3 words preferred. 2 words allowed ONLY when 3 words would be unnatural. NEVER more than 3 words.
-- Highly relevant, commonly searched, conversion-oriented
+3 groups, EXACTLY 10 each:
 
-3. Long-Tail Keywords (10 keywords)
-- Specific but NOT too long
-- STRICT: 3-5 words only
-- Must include use-case, feature, audience, or context (e.g. "for travel", "for gym", "with lid")
-- Should feel like real Amazon search terms shoppers type
+1. **High Intent (10)** — strong buying intent, 2-4 words. Style: "best <coreProduct>", "<key attribute> <coreProduct>", "<size> <coreProduct>". Avoid generic fillers like "buy", "cheap", "deal".
 
-STRICT QUALITY BAR — REJECT ANY KEYWORD THAT:
-- Is longer than 5 words or shorter than 2 words
-- Is a single word
-- Is a near-duplicate of another keyword (same root + filler word)
-- Contains the user's brand name
-- Is irrelevant to the actual product
-- Is unnatural, sentence-like, or stuffed
-- Is too broad (e.g. "products", "items", "things")
-- Mentions an unrelated product
-- Includes adult, medical, prescription, or restricted terms unless the product itself is in that category
-- Is misspelled
+2. **Core Keywords (10)** — main search terms. STRICT: 3 words preferred, 2 words allowed only when 3 would be unnatural. NEVER more than 3 words. These are the everyday Amazon searches for this product.
 
-After drafting, RE-READ each keyword and silently delete any that fail the bar above. Then replace deletions with stronger alternatives so each group has exactly 10. Final list must be 30 unique, top-tier keywords.
+3. **Long-Tail Keywords (10)** — specific, intent-rich. STRICT: 3-5 words. Must include a specific use-case, attribute, or audience.
 
-Also output ONE short Amazon search query (2-4 words) that would surface the strongest direct competitor listings for this product. This will be used to fetch real competitor ASINs from Amazon search. Choose the query that maximizes finding products in the same sub-category and price tier.
+============================
+QUALITY BAR — REJECT KEYWORDS THAT:
+============================
+- Are longer than 5 words or shorter than 2 words
+- Are single-word
+- Are near-duplicates (same root + filler)
+- Contain the user's brand name in any form
+- Mention features the product doesn't actually have
+- Are unrelated to the coreProduct
+- Are generic ("products", "items", "things")
+- Sound unnatural or stuffed
+- Are misspelled
+- Mention an unrelated category
 
-OUTPUT FORMAT (STRICT JSON ONLY, no markdown, no commentary):
+After drafting, RE-READ each keyword and silently delete any that fail. Replace with stronger picks so each group has exactly 10.
 
+============================
+STEP 3: COMPETITOR SEARCH QUERY
+============================
+Output ONE short Amazon search query (2-4 words) we'll use to fetch real competitor ASINs from Amazon. The query should:
+- Use the coreProduct
+- Add 1-2 differentiating attributes (size, type, material) so results match this product's tier
+- NOT include the user's brand
+- Feel like a natural Amazon search
+
+Examples:
+  Coreproduct "Electric Toothbrush" + attributes [rechargeable, 5 modes] → "rechargeable electric toothbrush"
+  Coreproduct "Tumbler" + attributes [40oz, stainless steel] → "40 oz insulated tumbler"
+
+============================
+OUTPUT FORMAT (STRICT JSON):
+============================
 {
+  "analysis": {
+    "coreProduct": "string",
+    "attributes": ["string", "string"],
+    "useCase": "string",
+    "audience": "string"
+  },
   "keywords": [
-    {"type": "High Intent", "value": "keyword"},
-    {"type": "Core", "value": "keyword"},
-    {"type": "Long Tail", "value": "keyword"}
+    {"type": "High Intent", "value": "..."},
+    {"type": "Core", "value": "..."},
+    {"type": "Long Tail", "value": "..."}
   ],
-  "competitor_search_query": "short amazon search query"
-}`;
+  "competitor_search_query": "..."
+}
 
-interface LlmOutput {
+No markdown. No commentary. Just JSON.`;
+
+const COMPETITOR_PICK_PROMPT = `You are an Amazon PPC strategist picking 5 competitor ASINs for ad targeting.
+
+You'll receive:
+- The user's product (title + brand + core product type)
+- A list of candidate competing products with ASIN + title
+
+Pick EXACTLY 5 ASINs that:
+1. Are genuine direct competitors (same product type and tier as the user's product)
+2. Are NOT from the user's brand or any subsidiary of it
+3. Cover at least 3 DIFFERENT brands (no more than 2 ASINs from the same brand)
+4. Prefer well-known competing brands first, but include 1-2 strong alternative brands for diversity
+5. Are actual products (not bundles, accessories, or unrelated items)
+
+Return strict JSON:
+{
+  "selected": ["B0XXXXXXXX", "B0XXXXXXXX", "B0XXXXXXXX", "B0XXXXXXXX", "B0XXXXXXXX"],
+  "rationale_brands": ["BrandA", "BrandB", ...]
+}
+No markdown, no commentary.`;
+
+interface LlmKeywordOutput {
+  analysis?: {
+    coreProduct?: string;
+    attributes?: string[];
+    useCase?: string;
+    audience?: string;
+  };
   keywords: Array<{ type: string; value: string }>;
   competitor_search_query?: string;
+}
+
+interface LlmCompetitorOutput {
+  selected?: string[];
+  rationale_brands?: string[];
 }
 
 interface BatchItem {
   asin?: string;
   title: string;
   detectedBrand?: string | null;
+  analysis?: {
+    coreProduct: string;
+    attributes: string[];
+    useCase?: string | null;
+    audience?: string | null;
+  };
   keywords: Array<{ type: "High Intent" | "Core" | "Long Tail"; value: string }>;
   competitor_asins: string[];
   error?: string;
 }
 
-function buildUserPrompt(input: {
+function buildKeywordPrompt(input: {
   title: string;
   brand?: string | null;
   category?: string | null;
@@ -89,11 +157,120 @@ function buildUserPrompt(input: {
 }): string {
   const lines: string[] = [`Product Title: ${input.title}`];
   if (input.brand) lines.push(`Brand (exclude from keywords): ${input.brand}`);
-  if (input.category) lines.push(`Category: ${input.category}`);
+  if (input.category) lines.push(`Category hint: ${input.category}`);
   if (input.priceRange) lines.push(`Price Range: ${input.priceRange}`);
-  lines.push("");
-  lines.push("Return ONLY the JSON described in the system instructions. No prose.");
+  lines.push("", "Return ONLY the JSON described in the system instructions.");
   return lines.join("\n");
+}
+
+function buildCompetitorPickPrompt(args: {
+  userTitle: string;
+  userBrand: string | null;
+  coreProduct: string;
+  candidates: SearchHit[];
+}): string {
+  const lines: string[] = [];
+  lines.push(`User product title: ${args.userTitle}`);
+  lines.push(`User brand: ${args.userBrand ?? "unknown"}`);
+  lines.push(`Core product type: ${args.coreProduct}`);
+  lines.push("");
+  lines.push("Candidate competitors (ASIN — title):");
+  for (const c of args.candidates) {
+    lines.push(`- ${c.asin} — ${c.title || "(no title)"}`);
+  }
+  lines.push("");
+  lines.push("Pick 5 ASINs per the rules. Return JSON only.");
+  return lines.join("\n");
+}
+
+async function pickDiverseCompetitors(
+  candidates: SearchHit[],
+  userTitle: string,
+  userBrand: string | null,
+  coreProduct: string,
+): Promise<string[]> {
+  // Heuristic fallback: enforce max 2 per brand from candidates list.
+  const heuristic = (): string[] => {
+    const selected: string[] = [];
+    const brandCount = new Map<string, number>();
+    for (const c of candidates) {
+      if (selected.length >= 5) break;
+      const cb = brandFromTitle(c.title);
+      // hard re-check: skip same-brand as user
+      if (userBrand && brandsMatch(userBrand, cb)) continue;
+      const key = normalizeBrand(cb) || `__${selected.length}`;
+      const count = brandCount.get(key) ?? 0;
+      if (count >= 2) continue;
+      brandCount.set(key, count + 1);
+      selected.push(c.asin);
+    }
+    // top-up if short, no diversity constraint but still avoid user brand
+    if (selected.length < 5) {
+      for (const c of candidates) {
+        if (selected.length >= 5) break;
+        if (selected.includes(c.asin)) continue;
+        if (userBrand && brandsMatch(userBrand, brandFromTitle(c.title))) continue;
+        selected.push(c.asin);
+      }
+    }
+    return selected;
+  };
+
+  if (candidates.length === 0) return [];
+  if (candidates.length <= 5) return heuristic();
+
+  try {
+    const completion = await openai.chat.completions.create({
+      model: MODEL,
+      max_completion_tokens: 1024,
+      messages: [
+        { role: "system", content: COMPETITOR_PICK_PROMPT },
+        {
+          role: "user",
+          content: buildCompetitorPickPrompt({
+            userTitle,
+            userBrand,
+            coreProduct,
+            candidates: candidates.slice(0, 20),
+          }),
+        },
+      ],
+      response_format: { type: "json_object" },
+    });
+    const content = completion.choices[0]?.message?.content ?? "";
+    const raw = JSON.parse(content) as LlmCompetitorOutput;
+    const candidateAsins = new Set(candidates.map((c) => c.asin));
+    const llmPicks = (raw.selected ?? [])
+      .map((a) => a?.trim().toUpperCase())
+      .filter((a): a is string => !!a && candidateAsins.has(a));
+
+    // Final safety pass: enforce no-user-brand and max-2-per-brand on LLM picks
+    const safe: string[] = [];
+    const brandCount = new Map<string, number>();
+    for (const asin of llmPicks) {
+      const hit = candidates.find((c) => c.asin === asin);
+      if (!hit) continue;
+      const cb = brandFromTitle(hit.title);
+      if (userBrand && brandsMatch(userBrand, cb)) continue;
+      const key = normalizeBrand(cb) || `__${safe.length}`;
+      const count = brandCount.get(key) ?? 0;
+      if (count >= 2) continue;
+      brandCount.set(key, count + 1);
+      safe.push(asin);
+      if (safe.length >= 5) break;
+    }
+
+    if (safe.length >= 5) return safe;
+    // top-up from heuristic, avoiding duplicates
+    const heur = heuristic();
+    for (const a of heur) {
+      if (safe.length >= 5) break;
+      if (!safe.includes(a)) safe.push(a);
+    }
+    return safe;
+  } catch {
+    return heuristic();
+  }
 }
 
 async function generateForOne(
@@ -104,13 +281,13 @@ async function generateForOne(
   priceRange: string | null | undefined,
 ): Promise<BatchItem> {
   const completion = await openai.chat.completions.create({
-    model: "gpt-5.4",
+    model: MODEL,
     max_completion_tokens: 4096,
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
       {
         role: "user",
-        content: buildUserPrompt({ title, brand, category, priceRange }),
+        content: buildKeywordPrompt({ title, brand, category, priceRange }),
       },
     ],
     response_format: { type: "json_object" },
@@ -119,31 +296,51 @@ async function generateForOne(
   const content = completion.choices[0]?.message?.content ?? "";
   if (!content) throw new Error("AI returned empty content");
 
-  const raw = JSON.parse(content) as LlmOutput;
+  const raw = JSON.parse(content) as LlmKeywordOutput;
   if (!Array.isArray(raw.keywords) || raw.keywords.length === 0) {
     throw new Error("AI returned no keywords");
   }
 
-  // Filter brand-containing keywords as a safety net
-  const brandLower = brand?.trim().toLowerCase();
-  const brandTokens = brandLower
-    ? brandLower.split(/\s+/).filter((t) => t.length >= 3)
-    : [];
+  const analysis = raw.analysis
+    ? {
+        coreProduct: raw.analysis.coreProduct?.trim() || "Product",
+        attributes: Array.isArray(raw.analysis.attributes)
+          ? raw.analysis.attributes.map((a) => String(a)).filter(Boolean)
+          : [],
+        useCase: raw.analysis.useCase?.trim() || null,
+        audience: raw.analysis.audience?.trim() || null,
+      }
+    : undefined;
+
+  // Filter brand-containing keywords as a safety net (normalized substring)
+  const userBrand = brand?.trim() || null;
+  const brandNorm = userBrand ? normalizeBrand(userBrand) : "";
   const cleanedKeywords = raw.keywords.filter((k) => {
     if (!k?.value) return false;
-    const v = k.value.toLowerCase();
-    if (brandTokens.length && brandTokens.some((tok) => v.includes(tok))) return false;
+    if (brandNorm && brandNorm.length >= 3) {
+      const v = normalizeBrand(k.value);
+      if (v.includes(brandNorm)) return false;
+    }
     return true;
   });
 
-  const searchQuery = raw.competitor_search_query?.trim() || title;
+  const searchQuery =
+    raw.competitor_search_query?.trim() ||
+    analysis?.coreProduct ||
+    title;
   let competitorAsins: string[] = [];
   try {
-    competitorAsins = await searchCompetitorAsins(searchQuery, {
-      limit: 5,
+    const candidates = await searchCompetitorHits(searchQuery, {
+      limit: 20,
       excludeAsin: asin,
-      excludeBrand: brand,
+      excludeBrand: userBrand,
     });
+    competitorAsins = await pickDiverseCompetitors(
+      candidates,
+      title,
+      userBrand,
+      analysis?.coreProduct || searchQuery,
+    );
   } catch {
     competitorAsins = [];
   }
@@ -151,7 +348,8 @@ async function generateForOne(
   return {
     asin,
     title,
-    detectedBrand: brand ?? null,
+    detectedBrand: userBrand,
+    analysis,
     keywords: cleanedKeywords as BatchItem["keywords"],
     competitor_asins: competitorAsins,
   };

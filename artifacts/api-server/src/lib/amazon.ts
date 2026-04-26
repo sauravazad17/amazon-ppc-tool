@@ -179,51 +179,88 @@ function parseSearchHits(html: string): SearchHit[] {
 }
 
 /**
- * Search Amazon and return up to `limit` competitor ASINs whose title does NOT contain the
- * excluded brand. Also excludes excludeAsin itself.
+ * Normalize a brand string to a comparable form: lowercase, strip punctuation,
+ * collapse whitespace. Handles "Oral-B" / "Oral B" / "OralB" / "ORAL-B" all → "oralb".
  */
-export async function searchCompetitorAsins(
+export function normalizeBrand(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+/**
+ * Best-effort brand extraction from an Amazon search result title.
+ * Most listings start with the brand name; if not, returns first significant token.
+ */
+export function brandFromTitle(title: string): string {
+  if (!title) return "";
+  // Strip common leading articles/adjectives that aren't brands
+  const cleaned = title.trim();
+  // Take up to first comma, dash with spaces, or "(" as the lead segment
+  const lead = cleaned.split(/\s*[,(\-–—]\s*/)[0] ?? "";
+  const tokens = lead.split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return "";
+  // First token is usually brand. Could be 2 words for some brands ("Oral B", "Stanley Black").
+  // Heuristic: if first 2 tokens are both Capitalized and short, treat as 2-word brand.
+  if (
+    tokens.length >= 2 &&
+    /^[A-Z][a-zA-Z0-9&'.-]{0,12}$/.test(tokens[0]!) &&
+    /^[A-Z][a-zA-Z0-9&'.-]{0,12}$/.test(tokens[1]!) &&
+    tokens[0]!.length + tokens[1]!.length < 20
+  ) {
+    return `${tokens[0]} ${tokens[1]}`;
+  }
+  return tokens[0] ?? "";
+}
+
+/**
+ * True if two brand strings refer to the same brand (handles punctuation/case).
+ */
+export function brandsMatch(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (!a || !b) return false;
+  const na = normalizeBrand(a);
+  const nb = normalizeBrand(b);
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+  // Substring containment for short brand tokens (e.g. "amazon" in "amazonbasics")
+  if (na.length >= 4 && nb.includes(na)) return true;
+  if (nb.length >= 4 && na.includes(nb)) return true;
+  return false;
+}
+
+/**
+ * Search Amazon and return up to `limit` ASIN+title hits, excluding excludeAsin and any hits
+ * whose detected brand matches excludeBrand. The caller is responsible for picking the final
+ * 5 with brand diversity.
+ */
+export async function searchCompetitorHits(
   query: string,
   options: {
     limit?: number;
     excludeAsin?: string | null;
     excludeBrand?: string | null;
   } = {},
-): Promise<string[]> {
-  const limit = options.limit ?? 5;
+): Promise<SearchHit[]> {
+  const limit = options.limit ?? 25;
   const url = `https://www.amazon.com/s?k=${encodeURIComponent(query)}&ref=nb_sb_noss`;
   const html = await fetchAmazon(url);
 
-  const exclude = options.excludeAsin?.toUpperCase();
-  const brand = options.excludeBrand?.trim().toLowerCase();
-  const brandTokens = brand
-    ? brand.split(/\s+/).filter((t) => t.length >= 3)
-    : [];
+  const excludeAsin = options.excludeAsin?.toUpperCase();
+  const userBrand = options.excludeBrand?.trim() ?? "";
 
-  const hits = parseSearchHits(html);
-  const results: string[] = [];
-  for (const hit of hits) {
-    if (exclude && hit.asin === exclude) continue;
-    if (brandTokens.length && hit.title) {
-      const lowerTitle = hit.title.toLowerCase();
-      const matches = brandTokens.some((tok) =>
-        new RegExp(`\\b${tok.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(
-          lowerTitle,
-        ),
-      );
-      if (matches) continue;
+  const allHits = parseSearchHits(html);
+  const filtered: SearchHit[] = [];
+  for (const hit of allHits) {
+    if (excludeAsin && hit.asin === excludeAsin) continue;
+    if (userBrand && hit.title) {
+      const candidateBrand = brandFromTitle(hit.title);
+      if (brandsMatch(userBrand, candidateBrand)) continue;
+      // Also: if the user brand appears anywhere in the title (substring on normalized form),
+      // still filter — catches cases where brand isn't first word.
+      const normTitle = normalizeBrand(hit.title);
+      const normUser = normalizeBrand(userBrand);
+      if (normUser.length >= 4 && normTitle.includes(normUser)) continue;
     }
-    results.push(hit.asin);
-    if (results.length >= limit) break;
+    filtered.push(hit);
+    if (filtered.length >= limit) break;
   }
-  // If brand filtering left us short, top up with unfiltered (still excluding self) so user always gets some.
-  if (results.length < limit) {
-    for (const hit of hits) {
-      if (results.includes(hit.asin)) continue;
-      if (exclude && hit.asin === exclude) continue;
-      results.push(hit.asin);
-      if (results.length >= limit) break;
-    }
-  }
-  return results;
+  return filtered;
 }

@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { Keyword } from "./keyword";
+import type { ProductAnalysis } from "./productAnalysis";
 
 export interface KeywordResultItem {
   /** The input ASIN (if generated from an ASIN) */
@@ -14,6 +15,7 @@ export interface KeywordResultItem {
   title: string;
   /** The user's brand detected from the product page (used to exclude same-brand competitors) */
   detectedBrand?: string | null;
+  analysis?: ProductAnalysis;
   keywords: Keyword[];
   competitor_asins: string[];
   /** Error message if this item failed */

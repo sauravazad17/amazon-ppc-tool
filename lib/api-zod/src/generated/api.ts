@@ -60,6 +60,26 @@ export const GenerateKeywordsResponse = zod.object({
         .describe(
           "The user's brand detected from the product page (used to exclude same-brand competitors)",
         ),
+      analysis: zod
+        .object({
+          coreProduct: zod
+            .string()
+            .describe(
+              'The 1-3 word core product type (e.g. \"Electric Toothbrush\")',
+            ),
+          attributes: zod
+            .array(zod.string())
+            .describe(
+              "Key product attributes detected (size, color, material, capacity, features)",
+            ),
+          useCase: zod.string().nullish().describe("Primary use case"),
+          audience: zod
+            .string()
+            .nullish()
+            .describe("Target audience or shopper persona"),
+        })
+        .optional()
+        .describe("Distilled understanding of the product"),
       keywords: zod.array(
         zod.object({
           type: zod.enum(["High Intent", "Core", "Long Tail"]),

@@ -148,6 +148,29 @@ components:
       required:
         - type
         - value
+    ProductAnalysis:
+      type: object
+      description: Distilled understanding of the product
+      properties:
+        coreProduct:
+          type: string
+          description: The 1-3 word core product type (e.g. "Electric Toothbrush")
+        attributes:
+          type: array
+          items:
+            type: string
+          description: Key product attributes detected (size, color, material, capacity, features)
+        useCase:
+          type: string
+          nullable: true
+          description: Primary use case
+        audience:
+          type: string
+          nullable: true
+          description: Target audience or shopper persona
+      required:
+        - coreProduct
+        - attributes
     KeywordResultItem:
       type: object
       properties:
@@ -162,6 +185,8 @@ components:
           type: string
           nullable: true
           description: The user's brand detected from the product page (used to exclude same-brand competitors)
+        analysis:
+          $ref: "#/components/schemas/ProductAnalysis"
         keywords:
           type: array
           items:
