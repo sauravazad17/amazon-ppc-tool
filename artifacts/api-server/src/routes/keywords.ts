@@ -43,27 +43,34 @@ Now generate keywords using your distilled understanding. Anchor every keyword o
 
 3 groups, EXACTLY 10 each:
 
-1. **High Intent (10)** — strong buying intent, 2-4 words. Style: "best <coreProduct>", "<key attribute> <coreProduct>", "<size> <coreProduct>". Avoid generic fillers like "buy", "cheap", "deal".
+1. **High Intent (10)** — strong buying intent, 2-4 words. These are searches by shoppers ready to buy a SPECIFIC kind of this product. Lead with the differentiating attribute, use case, audience, material, size, or category modifier — NOT with hype words. Examples for an Electric Toothbrush: "rechargeable electric toothbrush", "sonic toothbrush adults", "electric toothbrush travel case", "deep clean toothbrush", "5 mode toothbrush". Avoid generic fillers like "buy", "cheap", "deal", "amazing", "top rated".
 
-2. **Core Keywords (10)** — main search terms. STRICT: 3 words preferred, 2 words allowed only when 3 would be unnatural. NEVER more than 3 words. These are the everyday Amazon searches for this product.
+2. **Core Keywords (10)** — main everyday search terms a shopper types. STRICT: 3 words preferred, 2 words allowed only when 3 would be unnatural. NEVER more than 3 words. Mostly noun-phrases describing the product itself (e.g. "electric toothbrush", "sonic toothbrush", "rechargeable toothbrush", "whitening toothbrush"). These should NOT lead with "best".
 
-3. **Long-Tail Keywords (10)** — specific, intent-rich. STRICT: 3-5 words. Must include a specific use-case, attribute, or audience.
+3. **Long-Tail Keywords (10)** — specific, intent-rich. STRICT: 3-5 words. Must include a specific use-case, attribute, audience, or scenario (e.g. "electric toothbrush for sensitive gums", "travel toothbrush with case", "rechargeable toothbrush for adults").
+
+============================
+THE "BEST..." RULE — VERY STRICT
+============================
+Most shoppers do NOT search "best <product>" — that's a Google query, not an Amazon query. Across ALL 30 keywords combined you may use the word "best" AT MOST 1 TIME, and only in the High Intent group. The first keyword of any group MUST NOT begin with "best". Vary your keyword starters: lead with attributes, sizes, materials, audiences, use cases, colors, certifications — anything specific to this product. If a keyword starts with "best" or "top", rewrite it.
 
 ============================
 QUALITY BAR — REJECT KEYWORDS THAT:
 ============================
 - Are longer than 5 words or shorter than 2 words
 - Are single-word
-- Are near-duplicates (same root + filler)
+- Are near-duplicates (same root + filler) — every keyword must add a NEW angle
 - Contain the user's brand name in any form
-- Mention features the product doesn't actually have
+- Mention features/attributes the product does NOT actually have (do not invent specs)
 - Are unrelated to the coreProduct
-- Are generic ("products", "items", "things")
-- Sound unnatural or stuffed
+- Are generic / meaningless ("products", "items", "things", "stuff", "online", "amazon")
+- Sound unnatural, stuffed, or like a marketing tagline rather than a search query
 - Are misspelled
-- Mention an unrelated category
+- Mention an unrelated product category
+- Lead with hype adjectives ("best", "top", "amazing", "ultimate", "premium" as the FIRST word)
+- Repeat the same modifier across many keywords (don't put "professional" or "heavy duty" on 5 of them)
 
-After drafting, RE-READ each keyword and silently delete any that fail. Replace with stronger picks so each group has exactly 10.
+After drafting, RE-READ each keyword as if you were searching on Amazon. Ask: "Would a real shopper actually type this exact phrase?" If no, delete and replace. Each group must have EXACTLY 10 final keywords.
 
 ============================
 STEP 3: COMPETITOR SEARCH QUERY
