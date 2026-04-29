@@ -461,9 +461,6 @@ export default function Home() {
                                 <Badge variant="outline" className="font-mono text-[10px] shrink-0 bg-violet-50 border-violet-200 text-violet-700 font-bold">
                                   {item.asin || "TITLE"}
                                 </Badge>
-                                <span className="text-sm font-medium truncate text-slate-700 group-hover:text-slate-900 transition-colors">
-                                  {item.title}
-                                </span>
                               </div>
                             </AccordionTrigger>
                             <AccordionContent className="bg-white/70 border border-white border-t-0 rounded-b-lg p-0 shadow-sm">
