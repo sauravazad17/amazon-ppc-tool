@@ -15,7 +15,8 @@ import {
   ChevronUp,
   Layers,
   Target,
-  BarChart3
+  BarChart3,
+  Sparkles,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useGenerateKeywords } from "@workspace/api-client-react";
@@ -204,29 +205,35 @@ export default function Home() {
 
   return (
     <TooltipProvider>
-      <div className="min-h-screen w-full overflow-x-hidden bg-[#020617] text-slate-50 font-sans selection:bg-blue-500/30 flex flex-col">
+      <div className="relative min-h-screen w-full overflow-x-hidden font-sans text-slate-900 selection:bg-violet-300/50 flex flex-col">
+        {/* Animated colorful background */}
+        <div className="absolute inset-0 -z-10 bg-gradient-to-br from-violet-50 via-sky-50 to-rose-50" />
+        <div className="absolute -z-10 top-[-200px] left-[-200px] w-[500px] h-[500px] rounded-full bg-violet-300/40 blur-3xl animate-pulse" />
+        <div className="absolute -z-10 top-[20%] right-[-150px] w-[400px] h-[400px] rounded-full bg-cyan-300/40 blur-3xl animate-pulse" style={{ animationDuration: "5s" }} />
+        <div className="absolute -z-10 bottom-[-150px] left-[30%] w-[450px] h-[450px] rounded-full bg-pink-300/40 blur-3xl animate-pulse" style={{ animationDuration: "7s" }} />
+
         {/* Top Bar */}
-        <header className="sticky top-0 z-50 border-b border-slate-800 bg-slate-950/80 backdrop-blur-md shrink-0">
-          <div className="max-w-screen-2xl mx-auto px-6 h-14 flex items-center justify-between">
+        <header className="sticky top-0 z-50 border-b border-white/40 bg-white/70 backdrop-blur-xl shrink-0 shadow-sm">
+          <div className="max-w-screen-2xl mx-auto px-6 h-16 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center shadow-lg">
-                <Zap className="w-5 h-5 text-white fill-current" />
-              </div>
+              <AnimatedLogo />
               <div className="hidden sm:block">
-                <h1 className="font-bold text-sm tracking-tight leading-none">New ASIN AK14 Keyword Research</h1>
-                <p className="text-[10px] text-slate-500 mt-0.5 uppercase tracking-wider">Professional Targeting Suite</p>
+                <h1 className="font-bold text-base tracking-tight leading-none bg-gradient-to-r from-violet-600 via-blue-600 to-cyan-600 bg-clip-text text-transparent">
+                  New ASIN AK14 Keyword Research
+                </h1>
+                <p className="text-[10px] text-slate-500 mt-1 uppercase tracking-[0.18em] font-semibold">Professional Targeting Suite</p>
               </div>
             </div>
-            <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20">
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-gradient-to-r from-emerald-100 to-teal-100 border border-emerald-200 shadow-sm">
               <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">Live Amazon search</span>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700">Live Amazon search</span>
             </div>
           </div>
         </header>
 
         <main className="max-w-screen-2xl mx-auto w-full flex-1 grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-0">
           {/* Left Sidebar */}
-          <aside className="lg:h-[calc(100vh-3.5rem)] lg:sticky lg:top-14 border-r border-slate-800 bg-slate-950/40 overflow-y-auto px-5 py-6">
+          <aside className="lg:h-[calc(100vh-4rem)] lg:sticky lg:top-16 border-r border-white/50 bg-white/60 backdrop-blur-xl overflow-y-auto px-5 py-6">
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
                 <FormField
@@ -234,24 +241,24 @@ export default function Home() {
                   name="asinsRaw"
                   render={({ field }) => (
                     <FormItem>
-                      <div className="flex items-center justify-between mb-1">
-                        <FormLabel className="text-xs font-semibold text-slate-300">Amazon ASINs</FormLabel>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <FormLabel className="text-xs font-bold text-slate-700 uppercase tracking-wider">Amazon ASINs</FormLabel>
                         <div className="text-[10px] font-medium flex items-center gap-1.5">
-                          <span className={cn(asinStats.valid > 0 ? "text-emerald-400" : "text-slate-500")}>{asinStats.valid} valid</span>
-                          <span className="text-slate-700">|</span>
-                          <span className={cn(asinStats.invalid > 0 ? "text-rose-400" : "text-slate-500")}>{asinStats.invalid} invalid</span>
+                          <span className={cn(asinStats.valid > 0 ? "text-emerald-600 font-bold" : "text-slate-400")}>{asinStats.valid} valid</span>
+                          <span className="text-slate-300">|</span>
+                          <span className={cn(asinStats.invalid > 0 ? "text-rose-600 font-bold" : "text-slate-400")}>{asinStats.invalid} invalid</span>
                         </div>
                       </div>
                       <FormControl>
                         <Textarea
                           placeholder="B07FZ8S74R, B0BDHWDR12..."
-                          className="bg-slate-950 border-slate-800 focus:ring-blue-500 min-h-[120px] font-mono text-xs resize-none"
+                          className="bg-white border-slate-200 focus-visible:ring-violet-500 focus-visible:border-violet-300 min-h-[120px] font-mono text-xs resize-none shadow-sm text-slate-900 placeholder:text-slate-400"
                           onPaste={handlePaste}
                           {...field}
                         />
                       </FormControl>
-                      <FormDescription className="text-[10px] text-slate-600 mt-1">Paste up to 15 ASINs (auto-formatted)</FormDescription>
-                      <FormMessage className="text-rose-400 text-[11px]" />
+                      <FormDescription className="text-[10px] text-slate-500 mt-1.5">Paste up to 15 ASINs (auto-formatted)</FormDescription>
+                      <FormMessage className="text-rose-600 text-[11px]" />
                     </FormItem>
                   )}
                 />
@@ -260,7 +267,7 @@ export default function Home() {
                   <button
                     type="button"
                     onClick={() => setShowTitleInput(!showTitleInput)}
-                    className="text-[11px] text-blue-400 hover:text-blue-300 flex items-center gap-1 transition-colors"
+                    className="text-[11px] text-violet-600 hover:text-violet-700 font-semibold flex items-center gap-1 transition-colors"
                   >
                     {showTitleInput ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                     Use a product title instead
@@ -280,11 +287,11 @@ export default function Home() {
                             <FormControl>
                               <Textarea
                                 placeholder="Enter full product title..."
-                                className="bg-slate-950 border-slate-800 focus:ring-blue-500 min-h-[80px] text-xs"
+                                className="bg-white border-slate-200 focus-visible:ring-violet-500 focus-visible:border-violet-300 min-h-[80px] text-xs shadow-sm text-slate-900 placeholder:text-slate-400"
                                 {...field}
                               />
                             </FormControl>
-                            <FormMessage className="text-rose-400 text-[11px]" />
+                            <FormMessage className="text-rose-600 text-[11px]" />
                           </FormItem>
                         )}
                       />
@@ -295,17 +302,17 @@ export default function Home() {
                 <Button
                   type="submit"
                   disabled={mutation.isPending}
-                  className="w-full h-10 bg-blue-600 hover:bg-blue-500 text-white font-bold transition-all shadow-lg"
+                  className="w-full h-11 bg-gradient-to-r from-violet-600 via-blue-600 to-cyan-600 hover:from-violet-700 hover:via-blue-700 hover:to-cyan-700 text-white font-bold transition-all shadow-lg shadow-violet-500/30 hover:shadow-xl hover:shadow-violet-500/40 hover:-translate-y-0.5 border-0"
                   data-testid="btn-generate"
                 >
                   {mutation.isPending ? (
                     <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                      <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                       <span className="text-xs">{LOADING_PHRASES[loadingPhraseIndex]}</span>
                     </div>
                   ) : (
                     <div className="flex items-center gap-2">
-                      <Zap className="w-3.5 h-3.5 fill-current" />
+                      <Sparkles className="w-3.5 h-3.5 fill-current" />
                       Generate Keywords
                     </div>
                   )}
@@ -315,7 +322,7 @@ export default function Home() {
           </aside>
 
           {/* Right Content Area */}
-          <section className="min-w-0 bg-slate-950/20">
+          <section className="min-w-0">
             <AnimatePresence mode="wait">
               {!mutation.data && !mutation.isPending && (
                 <motion.div
@@ -324,29 +331,38 @@ export default function Home() {
                   animate={{ opacity: 1 }}
                   className="h-full flex flex-col items-center justify-center p-12 text-center"
                 >
-                  <div className="w-16 h-16 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center mb-6">
-                    <Search className="w-8 h-8 text-slate-600" />
-                  </div>
-                  <h2 className="text-xl font-bold text-slate-200 mb-4">Ready to Analyze</h2>
+                  <motion.div
+                    initial={{ scale: 0.8, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    transition={{ type: "spring", duration: 0.6 }}
+                    className="relative w-20 h-20 mb-6"
+                  >
+                    <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-violet-400 via-blue-400 to-cyan-400 blur-xl opacity-40 animate-pulse" />
+                    <div className="relative w-20 h-20 rounded-3xl bg-gradient-to-br from-white to-violet-50 border border-violet-200 flex items-center justify-center shadow-xl">
+                      <Search className="w-9 h-9 text-violet-500" />
+                    </div>
+                  </motion.div>
+                  <h2 className="text-2xl font-bold text-slate-900 mb-1">Ready to Analyze</h2>
+                  <p className="text-sm text-slate-500 mb-6">Enter ASINs to start generating</p>
                   <div className="space-y-3 max-w-sm text-left">
-                    <div className="flex items-start gap-3">
-                      <div className="w-5 h-5 rounded-full bg-blue-500/10 flex items-center justify-center shrink-0 mt-0.5">
-                        <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
-                      </div>
-                      <p className="text-sm text-slate-400"><span className="text-slate-200 font-medium">Distills</span> long Amazon titles into the real product type.</p>
-                    </div>
-                    <div className="flex items-start gap-3">
-                      <div className="w-5 h-5 rounded-full bg-blue-500/10 flex items-center justify-center shrink-0 mt-0.5">
-                        <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
-                      </div>
-                      <p className="text-sm text-slate-400"><span className="text-slate-200 font-medium">30 conversion-grade</span> keywords per ASIN.</p>
-                    </div>
-                    <div className="flex items-start gap-3">
-                      <div className="w-5 h-5 rounded-full bg-blue-500/10 flex items-center justify-center shrink-0 mt-0.5">
-                        <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
-                      </div>
-                      <p className="text-sm text-slate-400"><span className="text-slate-200 font-medium">5 competitor ASINs</span> from different brands.</p>
-                    </div>
+                    {[
+                      { color: "from-violet-500 to-fuchsia-500", text: <><span className="text-slate-900 font-semibold">Distills</span> long Amazon titles into the real product type.</> },
+                      { color: "from-blue-500 to-cyan-500", text: <><span className="text-slate-900 font-semibold">30 conversion-grade</span> keywords per ASIN.</> },
+                      { color: "from-emerald-500 to-teal-500", text: <><span className="text-slate-900 font-semibold">5 competitor ASINs</span> from different brands.</> },
+                    ].map((row, i) => (
+                      <motion.div
+                        key={i}
+                        initial={{ opacity: 0, x: -10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: 0.1 + i * 0.08 }}
+                        className="flex items-start gap-3"
+                      >
+                        <div className={cn("w-6 h-6 rounded-full bg-gradient-to-br shadow-sm flex items-center justify-center shrink-0 mt-0.5", row.color)}>
+                          <Check className="w-3 h-3 text-white" strokeWidth={3} />
+                        </div>
+                        <p className="text-sm text-slate-600">{row.text}</p>
+                      </motion.div>
+                    ))}
                   </div>
                 </motion.div>
               )}
@@ -359,24 +375,23 @@ export default function Home() {
                   className="p-8 space-y-6"
                 >
                   <div className="flex items-center justify-between">
-                    <Skeleton className="h-10 w-64 bg-slate-900" />
-                    <Skeleton className="h-8 w-48 bg-slate-900" />
+                    <Skeleton className="h-10 w-64 bg-white/60" />
+                    <Skeleton className="h-8 w-48 bg-white/60" />
                   </div>
                   <div className="space-y-4">
                     {[1, 2].map(i => (
-                      <div key={i} className="p-4 bg-slate-900/40 rounded-xl border border-slate-800 space-y-6">
+                      <div key={i} className="p-4 bg-white/60 rounded-xl border border-white/80 space-y-6 shadow-sm">
                         <div className="flex justify-between">
                           <div className="space-y-2">
-                            <Skeleton className="h-4 w-24 bg-slate-800" />
-                            <Skeleton className="h-6 w-96 bg-slate-800" />
+                            <Skeleton className="h-4 w-24 bg-slate-200" />
+                            <Skeleton className="h-6 w-96 bg-slate-200" />
                           </div>
-                          <Skeleton className="h-4 w-32 bg-slate-800" />
+                          <Skeleton className="h-4 w-32 bg-slate-200" />
                         </div>
-                        <Skeleton className="h-24 w-full bg-slate-800/50" />
                         <div className="grid grid-cols-3 gap-4">
-                          <Skeleton className="h-40 bg-slate-800/30" />
-                          <Skeleton className="h-40 bg-slate-800/30" />
-                          <Skeleton className="h-40 bg-slate-800/30" />
+                          <Skeleton className="h-40 bg-slate-100" />
+                          <Skeleton className="h-40 bg-slate-100" />
+                          <Skeleton className="h-40 bg-slate-100" />
                         </div>
                       </div>
                     ))}
@@ -392,42 +407,42 @@ export default function Home() {
                   className="flex flex-col h-full"
                 >
                   {/* Sticky Results Toolbar */}
-                  <div className="sticky top-14 z-40 bg-slate-950/60 backdrop-blur-md border-b border-slate-800 px-6 py-2.5 flex items-center justify-between">
+                  <div className="sticky top-16 z-40 bg-white/80 backdrop-blur-xl border-b border-white/60 px-6 py-3 flex items-center justify-between shadow-sm">
                     <div className="flex items-center gap-4 text-xs">
                       <div className="flex flex-col">
                         <span className="text-slate-500 uppercase tracking-tighter text-[9px] font-bold">Products</span>
-                        <span className="font-mono tabular-nums">{mutation.data.items.length}</span>
+                        <span className="font-mono tabular-nums text-slate-900 font-semibold">{mutation.data.items.length}</span>
                       </div>
-                      <div className="w-px h-6 bg-slate-800" />
+                      <div className="w-px h-6 bg-slate-200" />
                       <div className="flex flex-col">
                         <span className="text-slate-500 uppercase tracking-tighter text-[9px] font-bold">Keywords</span>
-                        <span className="font-mono tabular-nums">{totalKws}</span>
+                        <span className="font-mono tabular-nums text-violet-600 font-semibold">{totalKws}</span>
                       </div>
-                      <div className="w-px h-6 bg-slate-800" />
+                      <div className="w-px h-6 bg-slate-200" />
                       <div className="flex flex-col">
                         <span className="text-slate-500 uppercase tracking-tighter text-[9px] font-bold">Targets</span>
-                        <span className="font-mono tabular-nums">{totalTargets}</span>
+                        <span className="font-mono tabular-nums text-rose-600 font-semibold">{totalTargets}</span>
                       </div>
                       {duration !== null && (
                         <>
-                          <div className="w-px h-6 bg-slate-800" />
+                          <div className="w-px h-6 bg-slate-200" />
                           <div className="flex flex-col">
                             <span className="text-slate-500 uppercase tracking-tighter text-[9px] font-bold">Search Time</span>
-                            <span className="text-slate-400 font-mono tabular-nums">{duration.toFixed(1)}s</span>
+                            <span className="text-slate-700 font-mono tabular-nums">{duration.toFixed(1)}s</span>
                           </div>
                         </>
                       )}
                     </div>
                     <div className="flex items-center gap-2">
-                      <Button variant="outline" size="sm" className="h-7 text-xs border-slate-800 bg-slate-900 hover:bg-slate-800 px-2" onClick={copyAllKeywords} data-testid="btn-copy-all">
-                        {copiedId === "copy-all" ? <Check className="w-3 h-3 mr-1.5" /> : <Copy className="w-3 h-3 mr-1.5" />}
+                      <Button variant="outline" size="sm" className="h-8 text-xs border-slate-200 bg-white hover:bg-violet-50 hover:border-violet-300 hover:text-violet-700 text-slate-700 px-2.5 shadow-sm" onClick={copyAllKeywords} data-testid="btn-copy-all">
+                        {copiedId === "copy-all" ? <Check className="w-3 h-3 mr-1.5 text-emerald-600" /> : <Copy className="w-3 h-3 mr-1.5" />}
                         Copy all
                       </Button>
-                      <Button variant="outline" size="sm" className="h-7 text-xs border-slate-800 bg-slate-900 hover:bg-slate-800 px-2" onClick={exportCSV} data-testid="btn-export-csv">
+                      <Button variant="outline" size="sm" className="h-8 text-xs border-slate-200 bg-white hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700 text-slate-700 px-2.5 shadow-sm" onClick={exportCSV} data-testid="btn-export-csv">
                         <Download className="w-3 h-3 mr-1.5" />
                         Export
                       </Button>
-                      <Button variant="ghost" size="sm" className="h-7 text-xs text-slate-500 hover:text-white px-2" onClick={handleReset} data-testid="btn-reset">
+                      <Button variant="ghost" size="sm" className="h-8 text-xs text-slate-500 hover:text-rose-600 hover:bg-rose-50 px-2.5" onClick={handleReset} data-testid="btn-reset">
                         <RotateCcw className="w-3 h-3 mr-1.5" />
                         Reset
                       </Button>
@@ -441,17 +456,17 @@ export default function Home() {
                       <Accordion type="single" collapsible defaultValue="item-0" className="space-y-3">
                         {mutation.data.items.map((item, idx) => (
                           <AccordionItem key={idx} value={`item-${idx}`} className="border-none">
-                            <AccordionTrigger className="flex p-3 bg-slate-900/40 hover:bg-slate-900/60 rounded-lg border border-slate-800 transition-all [&[data-state=open]]:rounded-b-none [&[data-state=open]]:border-b-0 hover:no-underline group">
+                            <AccordionTrigger className="flex p-3 bg-white/70 hover:bg-white rounded-lg border border-white shadow-sm transition-all [&[data-state=open]]:rounded-b-none [&[data-state=open]]:border-b-0 hover:no-underline group">
                               <div className="flex items-center gap-3 text-left min-w-0 pr-4">
-                                <Badge variant="outline" className="font-mono text-[10px] shrink-0 bg-slate-950 border-slate-700 text-blue-400">
+                                <Badge variant="outline" className="font-mono text-[10px] shrink-0 bg-violet-50 border-violet-200 text-violet-700 font-bold">
                                   {item.asin || "TITLE"}
                                 </Badge>
-                                <span className="text-sm font-medium truncate text-slate-300 group-hover:text-white transition-colors">
+                                <span className="text-sm font-medium truncate text-slate-700 group-hover:text-slate-900 transition-colors">
                                   {item.title}
                                 </span>
                               </div>
                             </AccordionTrigger>
-                            <AccordionContent className="bg-slate-900/20 border border-slate-800 border-t-0 rounded-b-lg p-0">
+                            <AccordionContent className="bg-white/70 border border-white border-t-0 rounded-b-lg p-0 shadow-sm">
                               <ResultCard item={item} index={idx} noBorder />
                             </AccordionContent>
                           </AccordionItem>
@@ -469,6 +484,43 @@ export default function Home() {
   );
 }
 
+function AnimatedLogo() {
+  return (
+    <div className="relative w-10 h-10 shrink-0">
+      {/* Outer glow */}
+      <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-violet-500 via-blue-500 to-cyan-500 blur-md opacity-60 animate-pulse" />
+      {/* Rotating gradient ring */}
+      <motion.div
+        className="absolute inset-0 rounded-2xl"
+        style={{
+          background: "conic-gradient(from 0deg, #8b5cf6, #3b82f6, #06b6d4, #ec4899, #8b5cf6)",
+        }}
+        animate={{ rotate: 360 }}
+        transition={{ duration: 6, repeat: Infinity, ease: "linear" }}
+      />
+      {/* Inner core */}
+      <div className="absolute inset-[3px] rounded-[14px] bg-gradient-to-br from-white via-violet-50 to-white flex items-center justify-center overflow-hidden">
+        {/* Subtle inner shine */}
+        <div className="absolute inset-0 bg-gradient-to-tr from-violet-100/0 via-blue-100/40 to-transparent" />
+        <motion.div
+          animate={{ scale: [1, 1.15, 1], rotate: [0, -8, 8, 0] }}
+          transition={{ duration: 2.4, repeat: Infinity, ease: "easeInOut" }}
+        >
+          <Sparkles className="relative w-5 h-5 text-violet-600 fill-violet-500/30" strokeWidth={2.2} />
+        </motion.div>
+      </div>
+      {/* Orbiting accent dot */}
+      <motion.div
+        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-12 h-12 pointer-events-none"
+        animate={{ rotate: 360 }}
+        transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
+      >
+        <div className="absolute -top-0.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-[0_0_6px_rgba(34,211,238,0.8)]" />
+      </motion.div>
+    </div>
+  );
+}
+
 function ResultCard({ item, index, noBorder }: { item: any, index: number, noBorder?: boolean }) {
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
@@ -480,14 +532,14 @@ function ResultCard({ item, index, noBorder }: { item: any, index: number, noBor
 
   if (item.error) {
     return (
-      <Card className={cn("bg-rose-500/5 border-rose-500/20", noBorder && "border-none shadow-none bg-transparent")}>
+      <Card className={cn("bg-rose-50 border-rose-200 shadow-sm", noBorder && "border-none shadow-none bg-transparent")}>
         <CardContent className="p-4">
           <div className="flex gap-3">
             <AlertCircle className="w-5 h-5 text-rose-500 shrink-0" />
             <div className="space-y-1">
-              <h4 className="text-sm font-bold text-rose-400">Failed to process {item.asin || "product"}</h4>
-              <p className="text-xs text-rose-300/80">{item.error}</p>
-              <Badge variant="outline" className="mt-2 border-rose-500/30 text-rose-400 text-[10px]">SKIPPED</Badge>
+              <h4 className="text-sm font-bold text-rose-700">Failed to process {item.asin || "product"}</h4>
+              <p className="text-xs text-rose-600">{item.error}</p>
+              <Badge variant="outline" className="mt-2 border-rose-300 text-rose-700 bg-rose-100 text-[10px]">SKIPPED</Badge>
             </div>
           </div>
         </CardContent>
@@ -496,10 +548,10 @@ function ResultCard({ item, index, noBorder }: { item: any, index: number, noBor
   }
 
   return (
-    <Card className={cn("bg-slate-900/30 border-slate-800 overflow-hidden", noBorder && "border-none shadow-none bg-transparent")}>
+    <Card className={cn("bg-white border-white shadow-md shadow-violet-100/40 overflow-hidden", noBorder && "border-none shadow-none bg-transparent")}>
       {/* Header Block: Image | (ASIN, Brand, View) on top + Title below */}
-      <div className="flex items-stretch border-b border-slate-800/80 gap-3 p-3">
-        <div className="shrink-0 w-20 h-20 sm:w-24 sm:h-24 rounded-md bg-slate-950 border border-slate-800 overflow-hidden flex items-center justify-center">
+      <div className="flex items-stretch border-b border-slate-100 gap-3 p-3 bg-gradient-to-r from-violet-50/60 via-blue-50/40 to-cyan-50/60">
+        <div className="shrink-0 w-20 h-20 sm:w-24 sm:h-24 rounded-lg bg-white border border-slate-200 overflow-hidden flex items-center justify-center shadow-sm">
           {item.image ? (
             <img
               src={item.image}
@@ -509,16 +561,16 @@ function ResultCard({ item, index, noBorder }: { item: any, index: number, noBor
               onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
             />
           ) : (
-            <Search className="w-6 h-6 text-slate-700" />
+            <Search className="w-6 h-6 text-slate-300" />
           )}
         </div>
         <div className="flex-1 min-w-0 flex flex-col justify-center gap-1.5">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-mono text-[13px] text-blue-300 font-bold tracking-widest bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">
+            <span className="font-mono text-[13px] text-white font-bold tracking-widest bg-gradient-to-r from-violet-600 to-blue-600 px-2.5 py-0.5 rounded shadow-sm">
               {item.asin || "N/A"}
             </span>
             {item.detectedBrand && (
-              <Badge className="bg-slate-800 text-slate-300 border-slate-700 text-[10px] py-0 h-5 font-normal">
+              <Badge className="bg-white text-slate-700 border-slate-200 text-[10px] py-0 h-5 font-medium shadow-sm">
                 {item.detectedBrand}
               </Badge>
             )}
@@ -527,13 +579,13 @@ function ResultCard({ item, index, noBorder }: { item: any, index: number, noBor
                 href={`https://www.amazon.com/dp/${item.asin}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-1 text-[10px] font-medium text-slate-500 hover:text-blue-400 transition-colors whitespace-nowrap ml-auto"
+                className="flex items-center gap-1 text-[10px] font-semibold text-slate-500 hover:text-violet-600 transition-colors whitespace-nowrap ml-auto"
               >
                 View on Amazon <ExternalLink className="w-3 h-3" />
               </a>
             )}
           </div>
-          <h3 className="text-sm font-semibold text-slate-100 leading-snug break-words">
+          <h3 className="text-sm font-semibold text-slate-900 leading-snug break-words">
             {item.title}
           </h3>
         </div>
@@ -544,7 +596,7 @@ function ResultCard({ item, index, noBorder }: { item: any, index: number, noBor
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
           <KeywordSection
             label="High Intent"
-            icon={<Zap className="w-3 h-3 text-amber-400" />}
+            icon={<Zap className="w-3 h-3 text-amber-600 fill-amber-400" />}
             accentColor="amber"
             keywords={item.keywords.filter((k: any) => k.type === "High Intent")}
             itemIndex={index}
@@ -554,7 +606,7 @@ function ResultCard({ item, index, noBorder }: { item: any, index: number, noBor
           />
           <KeywordSection
             label="Core Keywords"
-            icon={<Layers className="w-3 h-3 text-blue-400" />}
+            icon={<Layers className="w-3 h-3 text-blue-600" />}
             accentColor="blue"
             keywords={item.keywords.filter((k: any) => k.type === "Core")}
             itemIndex={index}
@@ -564,7 +616,7 @@ function ResultCard({ item, index, noBorder }: { item: any, index: number, noBor
           />
           <KeywordSection
             label="Long-Tail"
-            icon={<BarChart3 className="w-3 h-3 text-emerald-400" />}
+            icon={<BarChart3 className="w-3 h-3 text-emerald-600" />}
             accentColor="emerald"
             keywords={item.keywords.filter((k: any) => k.type === "Long Tail")}
             itemIndex={index}
@@ -575,15 +627,15 @@ function ResultCard({ item, index, noBorder }: { item: any, index: number, noBor
         </div>
 
         {/* Competitor Targets */}
-        <div className="bg-slate-950/40 border border-slate-800 rounded-lg p-3 space-y-2.5">
+        <div className="bg-gradient-to-br from-rose-50 via-pink-50 to-fuchsia-50 border border-rose-100 rounded-lg p-3 space-y-2.5">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Target className="w-3.5 h-3.5 text-rose-400" />
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-200">
+              <Target className="w-3.5 h-3.5 text-rose-600" />
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-800">
                 Competitor Targets
               </span>
               {item.competitor_asins.length > 0 && (
-                <span className="text-[10px] font-mono tabular-nums text-slate-500">
+                <span className="text-[10px] font-mono tabular-nums text-rose-600 font-bold">
                   ({item.competitor_asins.length})
                 </span>
               )}
@@ -591,9 +643,9 @@ function ResultCard({ item, index, noBorder }: { item: any, index: number, noBor
             {item.competitor_asins.length > 0 && (
               <button
                 onClick={() => copy(item.competitor_asins.join("\n"), `targets-${index}`)}
-                className="text-[10px] text-slate-500 hover:text-white flex items-center gap-1 transition-colors"
+                className="text-[10px] text-slate-500 hover:text-rose-600 font-semibold flex items-center gap-1 transition-colors"
               >
-                {copiedId === `targets-${index}` ? <Check className="w-2.5 h-2.5" /> : <Copy className="w-2.5 h-2.5" />}
+                {copiedId === `targets-${index}` ? <Check className="w-2.5 h-2.5 text-emerald-600" /> : <Copy className="w-2.5 h-2.5" />}
                 Copy all
               </button>
             )}
@@ -602,20 +654,20 @@ function ResultCard({ item, index, noBorder }: { item: any, index: number, noBor
           {item.competitor_asins.length > 0 ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
               {item.competitor_asins.map((asin: string, idx: number) => (
-                <div key={asin} className="group flex items-center justify-between gap-2 bg-slate-900/60 border border-slate-800 rounded-md px-2.5 py-1.5 hover:border-rose-500/40 hover:bg-slate-900 transition-colors">
+                <div key={asin} className="group flex items-center justify-between gap-2 bg-white border border-rose-100 rounded-md px-2.5 py-1.5 hover:border-rose-300 hover:shadow-sm transition-all">
                   <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-[9px] font-bold text-slate-600 tabular-nums">{idx + 1}</span>
-                    <span className="font-mono text-[11px] text-slate-200 tracking-wider truncate">{asin}</span>
+                    <span className="text-[9px] font-bold text-rose-500 tabular-nums">{idx + 1}</span>
+                    <span className="font-mono text-[11px] text-slate-800 tracking-wider truncate font-semibold">{asin}</span>
                   </div>
                   <div className="flex items-center gap-1 shrink-0 opacity-60 group-hover:opacity-100 transition-opacity">
                     <button
                       onClick={() => copy(asin, `asin-${index}-${idx}`)}
-                      className="text-slate-500 hover:text-blue-400"
+                      className="text-slate-400 hover:text-violet-600"
                       data-testid={`btn-asin-${index}-${idx}`}
                     >
-                      {copiedId === `asin-${index}-${idx}` ? <Check className="w-2.5 h-2.5 text-emerald-400" /> : <Copy className="w-2.5 h-2.5" />}
+                      {copiedId === `asin-${index}-${idx}` ? <Check className="w-2.5 h-2.5 text-emerald-600" /> : <Copy className="w-2.5 h-2.5" />}
                     </button>
-                    <a href={`https://www.amazon.com/dp/${asin}`} target="_blank" rel="noopener noreferrer" className="text-slate-500 hover:text-blue-400">
+                    <a href={`https://www.amazon.com/dp/${asin}`} target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-blue-600">
                       <ExternalLink className="w-2.5 h-2.5" />
                     </a>
                   </div>
@@ -623,7 +675,7 @@ function ResultCard({ item, index, noBorder }: { item: any, index: number, noBor
               ))}
             </div>
           ) : (
-            <p className="text-[11px] text-slate-600 italic">No competitor ASINs found.</p>
+            <p className="text-[11px] text-slate-500 italic">No competitor ASINs found.</p>
           )}
         </div>
       </CardContent>
@@ -632,30 +684,30 @@ function ResultCard({ item, index, noBorder }: { item: any, index: number, noBor
 }
 
 function KeywordSection({ label, icon, accentColor, keywords, itemIndex, sectionIdx, onCopy, copiedId }: any) {
-  const accentMap: Record<string, { header: string; border: string; rowHover: string; numColor: string }> = {
-    amber:   { header: "bg-amber-500/5 border-amber-500/20",   border: "border-amber-500/30",   rowHover: "hover:border-amber-500/40",   numColor: "text-amber-400/70" },
-    blue:    { header: "bg-blue-500/5 border-blue-500/20",     border: "border-blue-500/30",    rowHover: "hover:border-blue-500/40",    numColor: "text-blue-400/70" },
-    emerald: { header: "bg-emerald-500/5 border-emerald-500/20", border: "border-emerald-500/30", rowHover: "hover:border-emerald-500/40", numColor: "text-emerald-400/70" },
+  const accentMap: Record<string, { header: string; border: string; numColor: string; copyHover: string }> = {
+    amber:   { header: "bg-gradient-to-r from-amber-50 to-orange-50 border-amber-100",     border: "border-amber-100",   numColor: "text-amber-600",   copyHover: "hover:text-amber-600" },
+    blue:    { header: "bg-gradient-to-r from-blue-50 to-sky-50 border-blue-100",          border: "border-blue-100",    numColor: "text-blue-600",    copyHover: "hover:text-blue-600" },
+    emerald: { header: "bg-gradient-to-r from-emerald-50 to-teal-50 border-emerald-100",   border: "border-emerald-100", numColor: "text-emerald-600", copyHover: "hover:text-emerald-600" },
   };
   const c = accentMap[accentColor] ?? accentMap.blue;
 
   return (
-    <div className={cn("bg-slate-950/60 border rounded-lg overflow-hidden", c.border)}>
+    <div className={cn("bg-white border rounded-lg overflow-hidden shadow-sm", c.border)}>
       <div className={cn("flex items-center justify-between px-3 py-2 border-b", c.header)}>
         <div className="flex items-center gap-2">
           {icon}
-          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-100">{label}</span>
-          <span className="text-[10px] font-mono tabular-nums text-slate-500">{keywords.length}</span>
+          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-800">{label}</span>
+          <span className={cn("text-[10px] font-mono tabular-nums font-bold", c.numColor)}>{keywords.length}</span>
         </div>
         <button
           onClick={() => onCopy(keywords.map((k: any) => k.value).join("\n"), `sec-${itemIndex}-${sectionIdx}`)}
-          className="text-slate-500 hover:text-white transition-colors"
+          className={cn("text-slate-400 transition-colors", c.copyHover)}
           aria-label="Copy all"
         >
-          {copiedId === `sec-${itemIndex}-${sectionIdx}` ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+          {copiedId === `sec-${itemIndex}-${sectionIdx}` ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
         </button>
       </div>
-      <ul className="divide-y divide-slate-800/60">
+      <ul className="divide-y divide-slate-100">
         {keywords.map((kw: any, idx: number) => {
           const id = `kw-${itemIndex}-${sectionIdx}-${idx}`;
           const isCopied = copiedId === id;
@@ -665,18 +717,18 @@ function KeywordSection({ label, icon, accentColor, keywords, itemIndex, section
                 onClick={() => onCopy(kw.value, id)}
                 className={cn(
                   "w-full flex items-center gap-2.5 px-3 py-1.5 text-left transition-colors group",
-                  "hover:bg-slate-900/80",
+                  "hover:bg-slate-50",
                 )}
                 data-testid={`row-kw-${itemIndex}-${idx}`}
               >
-                <span className={cn("text-[10px] font-mono tabular-nums w-4 shrink-0", c.numColor)}>
+                <span className={cn("text-[10px] font-mono tabular-nums w-4 shrink-0 font-bold", c.numColor)}>
                   {String(idx + 1).padStart(2, "0")}
                 </span>
-                <span className="text-xs text-slate-200 flex-1 break-words">{kw.value}</span>
+                <span className="text-xs text-slate-700 flex-1 break-words">{kw.value}</span>
                 {isCopied ? (
-                  <Check className="w-3 h-3 text-emerald-400 shrink-0" />
+                  <Check className="w-3 h-3 text-emerald-600 shrink-0" />
                 ) : (
-                  <Copy className="w-3 h-3 text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                  <Copy className="w-3 h-3 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
                 )}
               </button>
             </li>
