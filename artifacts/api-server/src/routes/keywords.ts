@@ -297,6 +297,20 @@ async function pickDiverseCompetitors(
       if (safe.length >= 5) break;
     }
 
+    // Soft top-up: if LLM returned fewer than 5, fill from the safe brand pool while
+    // still honoring max-2-per-brand. We only relax similarity here — never user-brand.
+    if (safe.length < 5) {
+      for (const c of safeBrandPool) {
+        if (safe.length >= 5) break;
+        if (safe.includes(c.asin)) continue;
+        const key = normalizeBrand(c.actualBrand ?? "") || `__${safe.length}`;
+        const count = brandCount.get(key) ?? 0;
+        if (count >= 2) continue;
+        brandCount.set(key, count + 1);
+        safe.push(c.asin);
+      }
+    }
+
     return safe;
   } catch {
     return heuristic();
