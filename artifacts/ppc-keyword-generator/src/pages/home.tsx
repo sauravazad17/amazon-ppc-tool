@@ -221,7 +221,6 @@ export default function Home() {
                 <h1 className="font-bold text-base tracking-tight leading-none bg-gradient-to-r from-violet-600 via-blue-600 to-cyan-600 bg-clip-text text-transparent">
                   New ASIN AK14 Keyword Research
                 </h1>
-                <p className="text-[10px] text-slate-500 mt-1 uppercase tracking-[0.18em] font-semibold">Professional Targeting Suite</p>
               </div>
             </div>
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-gradient-to-r from-emerald-100 to-teal-100 border border-emerald-200 shadow-sm">
@@ -458,9 +457,9 @@ export default function Home() {
                           <AccordionItem key={idx} value={`item-${idx}`} className="border-none">
                             <AccordionTrigger className="flex p-3 bg-white/70 hover:bg-white rounded-lg border border-white shadow-sm transition-all [&[data-state=open]]:rounded-b-none [&[data-state=open]]:border-b-0 hover:no-underline group">
                               <div className="flex items-center gap-3 text-left min-w-0 pr-4">
-                                <Badge variant="outline" className="font-mono text-[10px] shrink-0 bg-violet-50 border-violet-200 text-violet-700 font-bold">
+                                <span className="font-mono text-[13px] text-white font-bold tracking-widest bg-gradient-to-r from-violet-600 to-blue-600 px-2.5 py-0.5 rounded shadow-sm">
                                   {item.asin || "TITLE"}
-                                </Badge>
+                                </span>
                               </div>
                             </AccordionTrigger>
                             <AccordionContent className="bg-white/70 border border-white border-t-0 rounded-b-lg p-0 shadow-sm">
