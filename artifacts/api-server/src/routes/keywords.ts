@@ -369,30 +369,56 @@ async function generateForOne(
     return true;
   });
 
-  const searchQuery =
-    raw.competitor_search_query?.trim() ||
-    analysis?.coreProduct ||
-    title;
+  // Build a list of search queries to try in order, from most-specific to most-generic.
+  // If a query yields no hits (e.g. Amazon temporarily blocks or returns nothing), we fall
+  // back to the next one rather than giving up.
+  const queryCandidates = Array.from(
+    new Set(
+      [
+        raw.competitor_search_query?.trim(),
+        analysis?.coreProduct?.trim(),
+        analysis?.coreProduct && analysis.attributes?.[0]
+          ? `${analysis.attributes[0]} ${analysis.coreProduct}`
+          : null,
+        title?.split(/\s*[-–—,(|]\s*/)[0]?.trim(),
+      ].filter((q): q is string => !!q && q.length > 0),
+    ),
+  );
+
   let competitorAsins: string[] = [];
-  try {
-    const candidates = await searchCompetitorHits(searchQuery, {
-      limit: 20,
-      excludeAsin: asin,
-      excludeBrand: userBrand,
-    });
-    // Verify each top candidate's actual brand from its product page (parallel) so we
-    // never accidentally include a same-brand competitor when the search-result title
-    // doesn't lead with the brand name.
-    const enriched = await enrichWithActualBrand(candidates, 8);
-    competitorAsins = await pickDiverseCompetitors(
-      enriched,
-      title,
-      userBrand,
-      analysis?.coreProduct || searchQuery,
-      analysis?.attributes ?? [],
-    );
-  } catch {
-    competitorAsins = [];
+  let candidates: SearchHit[] = [];
+  for (const q of queryCandidates) {
+    try {
+      const hits = await searchCompetitorHits(q, {
+        limit: 20,
+        excludeAsin: asin,
+        excludeBrand: userBrand,
+      });
+      if (hits.length > 0) {
+        candidates = hits;
+        break;
+      }
+    } catch {
+      // try next query
+    }
+  }
+
+  if (candidates.length > 0) {
+    try {
+      // Verify each top candidate's actual brand from its product page (parallel) so we
+      // never accidentally include a same-brand competitor when the search-result title
+      // doesn't lead with the brand name.
+      const enriched = await enrichWithActualBrand(candidates, 8);
+      competitorAsins = await pickDiverseCompetitors(
+        enriched,
+        title,
+        userBrand,
+        analysis?.coreProduct || queryCandidates[0] || title,
+        analysis?.attributes ?? [],
+      );
+    } catch {
+      competitorAsins = [];
+    }
   }
 
   return {
