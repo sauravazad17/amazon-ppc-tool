@@ -383,7 +383,7 @@ async function generateForOne(
     // Verify each top candidate's actual brand from its product page (parallel) so we
     // never accidentally include a same-brand competitor when the search-result title
     // doesn't lead with the brand name.
-    const enriched = await enrichWithActualBrand(candidates, 12);
+    const enriched = await enrichWithActualBrand(candidates, 8);
     competitorAsins = await pickDiverseCompetitors(
       enriched,
       title,
