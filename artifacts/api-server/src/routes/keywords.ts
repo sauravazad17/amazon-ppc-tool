@@ -4,6 +4,7 @@ import { openai } from "@workspace/integrations-openai-ai-server";
 import {
   brandFromTitle,
   brandsMatch,
+  getBrandByAsin,
   getProductInfoByAsin,
   isValidAsin,
   normalizeBrand,
@@ -105,22 +106,24 @@ OUTPUT FORMAT (STRICT JSON):
 
 No markdown. No commentary. Just JSON.`;
 
-const COMPETITOR_PICK_PROMPT = `You are an Amazon PPC strategist picking 5 competitor ASINs for ad targeting.
+const COMPETITOR_PICK_PROMPT = `You are an Amazon PPC strategist picking up to 5 competitor ASINs for ad targeting.
 
 You'll receive:
-- The user's product (title + brand + core product type)
-- A list of candidate competing products with ASIN + title
+- The user's product (title + brand + core product type + key attributes)
+- A list of candidate competing products with ASIN + title + verified brand
 
-Pick EXACTLY 5 ASINs that:
-1. Are genuine direct competitors (same product type and tier as the user's product)
-2. Are NOT from the user's brand or any subsidiary of it
-3. Cover at least 3 DIFFERENT brands (no more than 2 ASINs from the same brand)
-4. Prefer well-known competing brands first, but include 1-2 strong alternative brands for diversity
-5. Are actual products (not bundles, accessories, or unrelated items)
+Pick the BEST competitors that satisfy ALL of these:
+1. SIMILARITY FIRST — must be the SAME product type and tier as the user's product (same coreProduct AND share at least 1-2 of the user's key attributes like size, capacity, technology, audience). A different sub-category does NOT count even if same broad category. Example: if user sells a "rechargeable electric toothbrush", manual toothbrushes and water flossers DO NOT qualify.
+2. NEVER from the user's brand. The verified brand is given for each candidate — if it equals or contains the user's brand, SKIP it.
+3. Brand diversity: cover at least 3 DIFFERENT brands. No more than 2 ASINs from the same brand.
+4. Real standalone products (no bundles, refills, accessories, replacement parts, cases, or unrelated items).
+5. Prefer well-known direct competitor brands; if needed, include 1-2 strong alternative brands for diversity.
+
+If fewer than 5 candidates meet ALL criteria, return fewer (3 or 4 is fine — quality over quantity).
 
 Return strict JSON:
 {
-  "selected": ["B0XXXXXXXX", "B0XXXXXXXX", "B0XXXXXXXX", "B0XXXXXXXX", "B0XXXXXXXX"],
+  "selected": ["B0XXXXXXXX", ...],
   "rationale_brands": ["BrandA", "BrandB", ...]
 }
 No markdown, no commentary.`;
@@ -144,6 +147,7 @@ interface LlmCompetitorOutput {
 interface BatchItem {
   asin?: string;
   title: string;
+  image?: string | null;
   detectedBrand?: string | null;
   analysis?: {
     coreProduct: string;
@@ -154,6 +158,10 @@ interface BatchItem {
   keywords: Array<{ type: "High Intent" | "Core" | "Long Tail"; value: string }>;
   competitor_asins: string[];
   error?: string;
+}
+
+interface EnrichedHit extends SearchHit {
+  actualBrand: string | null;
 }
 
 function buildKeywordPrompt(input: {
@@ -174,57 +182,78 @@ function buildCompetitorPickPrompt(args: {
   userTitle: string;
   userBrand: string | null;
   coreProduct: string;
-  candidates: SearchHit[];
+  attributes: string[];
+  candidates: EnrichedHit[];
 }): string {
   const lines: string[] = [];
   lines.push(`User product title: ${args.userTitle}`);
   lines.push(`User brand: ${args.userBrand ?? "unknown"}`);
   lines.push(`Core product type: ${args.coreProduct}`);
-  lines.push("");
-  lines.push("Candidate competitors (ASIN — title):");
-  for (const c of args.candidates) {
-    lines.push(`- ${c.asin} — ${c.title || "(no title)"}`);
+  if (args.attributes.length) {
+    lines.push(`Key attributes (must share at least 1-2 with picks): ${args.attributes.join(", ")}`);
   }
   lines.push("");
-  lines.push("Pick 5 ASINs per the rules. Return JSON only.");
+  lines.push("Candidates (ASIN | verified brand | title):");
+  for (const c of args.candidates) {
+    lines.push(`- ${c.asin} | ${c.actualBrand ?? "unknown"} | ${c.title || "(no title)"}`);
+  }
+  lines.push("");
+  lines.push("Pick the strongest competitors per the rules. Up to 5. Return JSON only.");
   return lines.join("\n");
 }
 
-async function pickDiverseCompetitors(
+/**
+ * For the top N candidates, fetch their actual brand from the product page in parallel.
+ * Falls back to brandFromTitle if the fetch fails.
+ */
+async function enrichWithActualBrand(
   candidates: SearchHit[],
+  limit: number,
+): Promise<EnrichedHit[]> {
+  const top = candidates.slice(0, limit);
+  const enriched = await Promise.all(
+    top.map(async (c): Promise<EnrichedHit> => {
+      const brand = await getBrandByAsin(c.asin);
+      return { ...c, actualBrand: brand ?? brandFromTitle(c.title) };
+    }),
+  );
+  return enriched;
+}
+
+async function pickDiverseCompetitors(
+  enriched: EnrichedHit[],
   userTitle: string,
   userBrand: string | null,
   coreProduct: string,
+  attributes: string[],
 ): Promise<string[]> {
-  // Heuristic fallback: enforce max 2 per brand from candidates list.
+  // Drop any candidate that matches the user's brand (verified) — hard exclusion.
+  const safeBrandPool = enriched.filter((c) => {
+    if (!userBrand) return true;
+    if (brandsMatch(userBrand, c.actualBrand)) return false;
+    // Extra safety: substring of user brand inside title
+    const normUser = normalizeBrand(userBrand);
+    if (normUser.length >= 4 && normalizeBrand(c.title).includes(normUser)) return false;
+    return true;
+  });
+
+  // Heuristic fallback: enforce max 2 per brand on the safe pool.
   const heuristic = (): string[] => {
     const selected: string[] = [];
     const brandCount = new Map<string, number>();
-    for (const c of candidates) {
+    for (const c of safeBrandPool) {
       if (selected.length >= 5) break;
-      const cb = brandFromTitle(c.title);
-      // hard re-check: skip same-brand as user
-      if (userBrand && brandsMatch(userBrand, cb)) continue;
-      const key = normalizeBrand(cb) || `__${selected.length}`;
+      const key = normalizeBrand(c.actualBrand ?? "") || `__${selected.length}`;
       const count = brandCount.get(key) ?? 0;
       if (count >= 2) continue;
       brandCount.set(key, count + 1);
       selected.push(c.asin);
     }
-    // top-up if short, no diversity constraint but still avoid user brand
-    if (selected.length < 5) {
-      for (const c of candidates) {
-        if (selected.length >= 5) break;
-        if (selected.includes(c.asin)) continue;
-        if (userBrand && brandsMatch(userBrand, brandFromTitle(c.title))) continue;
-        selected.push(c.asin);
-      }
-    }
     return selected;
   };
 
-  if (candidates.length === 0) return [];
-  if (candidates.length <= 5) return heuristic();
+  if (safeBrandPool.length === 0) return [];
+  if (safeBrandPool.length <= 3) return heuristic();
 
   try {
     const completion = await openai.chat.completions.create({
@@ -238,7 +267,8 @@ async function pickDiverseCompetitors(
             userTitle,
             userBrand,
             coreProduct,
-            candidates: candidates.slice(0, 20),
+            attributes,
+            candidates: safeBrandPool,
           }),
         },
       ],
@@ -246,20 +276,20 @@ async function pickDiverseCompetitors(
     });
     const content = completion.choices[0]?.message?.content ?? "";
     const raw = JSON.parse(content) as LlmCompetitorOutput;
-    const candidateAsins = new Set(candidates.map((c) => c.asin));
+    const safeMap = new Map(safeBrandPool.map((c) => [c.asin, c]));
     const llmPicks = (raw.selected ?? [])
       .map((a) => a?.trim().toUpperCase())
-      .filter((a): a is string => !!a && candidateAsins.has(a));
+      .filter((a): a is string => !!a && safeMap.has(a));
 
-    // Final safety pass: enforce no-user-brand and max-2-per-brand on LLM picks
+    // Final safety pass: enforce no-user-brand (already done) and max-2-per-brand on LLM picks
     const safe: string[] = [];
     const brandCount = new Map<string, number>();
     for (const asin of llmPicks) {
-      const hit = candidates.find((c) => c.asin === asin);
+      const hit = safeMap.get(asin);
       if (!hit) continue;
-      const cb = brandFromTitle(hit.title);
-      if (userBrand && brandsMatch(userBrand, cb)) continue;
-      const key = normalizeBrand(cb) || `__${safe.length}`;
+      // Re-verify brand exclusion (paranoid)
+      if (userBrand && brandsMatch(userBrand, hit.actualBrand)) continue;
+      const key = normalizeBrand(hit.actualBrand ?? "") || `__${safe.length}`;
       const count = brandCount.get(key) ?? 0;
       if (count >= 2) continue;
       brandCount.set(key, count + 1);
@@ -267,13 +297,6 @@ async function pickDiverseCompetitors(
       if (safe.length >= 5) break;
     }
 
-    if (safe.length >= 5) return safe;
-    // top-up from heuristic, avoiding duplicates
-    const heur = heuristic();
-    for (const a of heur) {
-      if (safe.length >= 5) break;
-      if (!safe.includes(a)) safe.push(a);
-    }
     return safe;
   } catch {
     return heuristic();
@@ -284,6 +307,7 @@ async function generateForOne(
   asin: string | undefined,
   title: string,
   brand: string | null | undefined,
+  image: string | null | undefined,
   category: string | null | undefined,
   priceRange: string | null | undefined,
 ): Promise<BatchItem> {
@@ -342,11 +366,16 @@ async function generateForOne(
       excludeAsin: asin,
       excludeBrand: userBrand,
     });
+    // Verify each top candidate's actual brand from its product page (parallel) so we
+    // never accidentally include a same-brand competitor when the search-result title
+    // doesn't lead with the brand name.
+    const enriched = await enrichWithActualBrand(candidates, 12);
     competitorAsins = await pickDiverseCompetitors(
-      candidates,
+      enriched,
       title,
       userBrand,
       analysis?.coreProduct || searchQuery,
+      analysis?.attributes ?? [],
     );
   } catch {
     competitorAsins = [];
@@ -355,6 +384,7 @@ async function generateForOne(
   return {
     asin,
     title,
+    image: image ?? null,
     detectedBrand: userBrand,
     analysis,
     keywords: cleanedKeywords as BatchItem["keywords"],
@@ -432,6 +462,7 @@ router.post("/keywords/generate", async (req: Request, res: Response) => {
             asin,
             info.title,
             brand,
+            info.image,
             input.category,
             input.priceRange,
           );
@@ -452,6 +483,7 @@ router.post("/keywords/generate", async (req: Request, res: Response) => {
         undefined,
         rawTitle,
         input.brand,
+        null,
         input.category,
         input.priceRange,
       );
