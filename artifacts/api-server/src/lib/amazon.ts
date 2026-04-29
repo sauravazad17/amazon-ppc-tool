@@ -116,26 +116,57 @@ function extractBrandFromProductHtml(html: string): string | null {
   return null;
 }
 
+function pickLargestFromDynamic(jsonText: string): string | null {
+  try {
+    const parsed = JSON.parse(jsonText) as Record<string, [number, number] | number[]>;
+    let best: { url: string; area: number } | null = null;
+    for (const [url, dims] of Object.entries(parsed)) {
+      if (!Array.isArray(dims) || dims.length < 2) continue;
+      const w = Number(dims[0]) || 0;
+      const h = Number(dims[1]) || 0;
+      const area = w * h;
+      if (!best || area > best.area) best = { url, area };
+    }
+    return best?.url ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function extractImageFromProductHtml(html: string): string | null {
   // Try Open Graph image first
   const og = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i);
   if (og?.[1]) return og[1];
-  // landingImage data-old-hires (highest res)
-  const hires = html.match(/id="landingImage"[^>]*data-old-hires="([^"]+)"/i);
+  // colorImages JSON: "hiRes":"https://..." (highest res, present even when other fields missing)
+  const hiResJson = html.match(/"hiRes"\s*:\s*"(https:\/\/[^"\s]+\.(?:jpg|jpeg|png|webp))"/i);
+  if (hiResJson?.[1]) return hiResJson[1];
+  // data-old-hires anywhere on the landingImage tag (attribute order in HTML may vary)
+  const hires = html.match(/data-old-hires="(https:\/\/[^"]+)"/i);
   if (hires?.[1]) return hires[1];
-  // landingImage src fallback
-  const src = html.match(/id="landingImage"[^>]*src="([^"]+)"/i);
-  if (src?.[1]) return src[1];
-  // data-a-dynamic-image JSON
-  const dyn = html.match(/data-a-dynamic-image="([^"]+)"/i);
+  // data-a-dynamic-image JSON: pick the largest variant
+  const dyn = html.match(/id="landingImage"[^>]*data-a-dynamic-image="([^"]+)"/i)
+          ?? html.match(/data-a-dynamic-image="([^"]+)"[^>]*id="landingImage"/i)
+          ?? html.match(/data-a-dynamic-image="([^"]+)"/i);
   if (dyn?.[1]) {
-    try {
-      const decoded = decodeEntities(dyn[1]);
-      const parsed = JSON.parse(decoded) as Record<string, unknown>;
-      const firstKey = Object.keys(parsed)[0];
-      if (firstKey) return firstKey;
-    } catch { /* ignore */ }
+    const decoded = decodeEntities(dyn[1]);
+    const best = pickLargestFromDynamic(decoded);
+    if (best) return best;
   }
+  // landingImage src fallback
+  const src = html.match(/id="landingImage"[^>]*src="(https:\/\/[^"]+)"/i)
+          ?? html.match(/src="(https:\/\/[^"]+)"[^>]*id="landingImage"/i);
+  if (src?.[1]) return src[1];
+  // imgBlkFront (legacy book/media layout)
+  const imgBlk = html.match(/id="imgBlkFront"[^>]*src="(https:\/\/[^"]+)"/i)
+              ?? html.match(/src="(https:\/\/[^"]+)"[^>]*id="imgBlkFront"/i);
+  if (imgBlk?.[1]) return imgBlk[1];
+  // main-image-container fallback
+  const mainImg = html.match(/id="main-image"[^>]*src="(https:\/\/[^"]+)"/i)
+               ?? html.match(/src="(https:\/\/[^"]+)"[^>]*id="main-image"/i);
+  if (mainImg?.[1]) return mainImg[1];
+  // Last resort: first media-amazon.com product image URL in the page
+  const anyImg = html.match(/https:\/\/m\.media-amazon\.com\/images\/I\/[A-Za-z0-9+%._-]+\.(?:jpg|jpeg|png|webp)/i);
+  if (anyImg?.[0]) return anyImg[0];
   return null;
 }
 
