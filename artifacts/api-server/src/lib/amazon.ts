@@ -1,16 +1,27 @@
-const UA =
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+const USER_AGENTS = [
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:125.0) Gecko/20100101 Firefox/125.0",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:127.0) Gecko/20100101 Firefox/127.0",
+];
 
-const COMMON_HEADERS: Record<string, string> = {
-  "User-Agent": UA,
-  Accept:
-    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-  "Accept-Language": "en-US,en;q=0.9",
-  "Accept-Encoding": "gzip, deflate, br",
-  "Cache-Control": "no-cache",
-  Pragma: "no-cache",
-  "Upgrade-Insecure-Requests": "1",
-};
+function buildHeaders(ua: string): Record<string, string> {
+  return {
+    "User-Agent": ua,
+    Accept:
+      "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Cache-Control": "no-cache",
+    Pragma: "no-cache",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+  };
+}
 
 export const ASIN_REGEX = /^B0[A-Z0-9]{8}$/;
 
@@ -41,22 +52,70 @@ export function parseAsinList(input: string): string[] {
   return out;
 }
 
-async function fetchAmazon(url: string, timeoutMs = 12_000): Promise<string> {
+function pickUa(seed: number): string {
+  return USER_AGENTS[Math.abs(seed) % USER_AGENTS.length] ?? USER_AGENTS[0]!;
+}
+
+function isHtmlBlocked(html: string): boolean {
+  if (!html) return true;
+  // Amazon bot-detection / captcha pages
+  if (/Robot Check|Type the characters you see in this image|To discuss automated/i.test(html)) {
+    return true;
+  }
+  // Sorry page
+  if (/<title[^>]*>\s*Sorry!?\s*Something went wrong/i.test(html)) return true;
+  return false;
+}
+
+async function fetchOnce(url: string, ua: string, timeoutMs: number): Promise<{ status: number; html: string }> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const res = await fetch(url, {
-      headers: COMMON_HEADERS,
+      headers: buildHeaders(ua),
       signal: ctrl.signal,
       redirect: "follow",
     });
-    if (!res.ok) {
-      throw new Error(`Amazon returned HTTP ${res.status}`);
-    }
-    return await res.text();
+    const html = await res.text();
+    return { status: res.status, html };
   } finally {
     clearTimeout(t);
   }
+}
+
+async function fetchAmazon(url: string, timeoutMs = 12_000): Promise<string> {
+  const maxAttempts = 3;
+  let lastErr: unknown = null;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const ua = pickUa(attempt + Math.floor(Math.random() * USER_AGENTS.length));
+    try {
+      const { status, html } = await fetchOnce(url, ua, timeoutMs);
+      if (status === 200 && !isHtmlBlocked(html)) {
+        return html;
+      }
+      // Retryable: 5xx, 429, or bot-detection page returned with 200
+      if (status >= 500 || status === 429 || (status === 200 && isHtmlBlocked(html))) {
+        lastErr = new Error(`Amazon returned HTTP ${status}${isHtmlBlocked(html) ? " (bot-check)" : ""}`);
+        if (attempt < maxAttempts - 1) {
+          const delay = 350 * Math.pow(2, attempt) + Math.floor(Math.random() * 250);
+          await new Promise((r) => setTimeout(r, delay));
+          continue;
+        }
+        throw lastErr;
+      }
+      // Non-retryable (4xx other than 429): bail immediately
+      throw new Error(`Amazon returned HTTP ${status}`);
+    } catch (err) {
+      lastErr = err;
+      if (attempt < maxAttempts - 1) {
+        const delay = 350 * Math.pow(2, attempt) + Math.floor(Math.random() * 250);
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error("Amazon fetch failed");
 }
 
 function decodeEntities(input: string): string {
