@@ -13,6 +13,8 @@ export interface KeywordResultItem {
   asin?: string | null;
   /** The product title used for generation */
   title: string;
+  /** Main product image URL scraped from the Amazon product page */
+  image?: string | null;
   /** The user's brand detected from the product page (used to exclude same-brand competitors) */
   detectedBrand?: string | null;
   analysis?: ProductAnalysis;

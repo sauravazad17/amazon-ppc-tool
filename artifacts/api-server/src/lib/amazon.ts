@@ -116,9 +116,33 @@ function extractBrandFromProductHtml(html: string): string | null {
   return null;
 }
 
+function extractImageFromProductHtml(html: string): string | null {
+  // Try Open Graph image first
+  const og = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i);
+  if (og?.[1]) return og[1];
+  // landingImage data-old-hires (highest res)
+  const hires = html.match(/id="landingImage"[^>]*data-old-hires="([^"]+)"/i);
+  if (hires?.[1]) return hires[1];
+  // landingImage src fallback
+  const src = html.match(/id="landingImage"[^>]*src="([^"]+)"/i);
+  if (src?.[1]) return src[1];
+  // data-a-dynamic-image JSON
+  const dyn = html.match(/data-a-dynamic-image="([^"]+)"/i);
+  if (dyn?.[1]) {
+    try {
+      const decoded = decodeEntities(dyn[1]);
+      const parsed = JSON.parse(decoded) as Record<string, unknown>;
+      const firstKey = Object.keys(parsed)[0];
+      if (firstKey) return firstKey;
+    } catch { /* ignore */ }
+  }
+  return null;
+}
+
 export interface ProductInfo {
   title: string;
   brand: string | null;
+  image: string | null;
 }
 
 export async function getProductInfoByAsin(
@@ -130,7 +154,21 @@ export async function getProductInfoByAsin(
   const title = extractTitleFromProductHtml(html);
   if (!title) return null;
   const brand = extractBrandFromProductHtml(html);
-  return { title, brand };
+  const image = extractImageFromProductHtml(html);
+  return { title, brand, image };
+}
+
+/**
+ * Lightweight: fetch only the brand for a given ASIN. Returns null on any failure.
+ * Used to verify competitor candidates aren't the same brand as the user's product.
+ */
+export async function getBrandByAsin(asin: string): Promise<string | null> {
+  try {
+    const info = await getProductInfoByAsin(asin);
+    return info?.brand ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export interface SearchHit {

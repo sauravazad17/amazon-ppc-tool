@@ -54,6 +54,12 @@ export const GenerateKeywordsResponse = zod.object({
         .nullish()
         .describe("The input ASIN (if generated from an ASIN)"),
       title: zod.string().describe("The product title used for generation"),
+      image: zod
+        .string()
+        .nullish()
+        .describe(
+          "Main product image URL scraped from the Amazon product page",
+        ),
       detectedBrand: zod
         .string()
         .nullish()

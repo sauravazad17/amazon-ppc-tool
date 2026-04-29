@@ -181,6 +181,10 @@ components:
         title:
           type: string
           description: The product title used for generation
+        image:
+          type: string
+          nullable: true
+          description: Main product image URL scraped from the Amazon product page
         detectedBrand:
           type: string
           nullable: true

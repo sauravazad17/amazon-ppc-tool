@@ -13,7 +13,6 @@ import {
   Search,
   ChevronDown,
   ChevronUp,
-  Info,
   Layers,
   Target,
   BarChart3
@@ -214,7 +213,7 @@ export default function Home() {
                 <Zap className="w-5 h-5 text-white fill-current" />
               </div>
               <div className="hidden sm:block">
-                <h1 className="font-bold text-sm tracking-tight leading-none">Amazon PPC Keyword Generator</h1>
+                <h1 className="font-bold text-sm tracking-tight leading-none">New ASIN AK14 Keyword Research</h1>
                 <p className="text-[10px] text-slate-500 mt-0.5 uppercase tracking-wider">Professional Targeting Suite</p>
               </div>
             </div>
@@ -498,34 +497,41 @@ function ResultCard({ item, index, noBorder }: { item: any, index: number, noBor
 
   return (
     <Card className={cn("bg-slate-900/30 border-slate-800 overflow-hidden", noBorder && "border-none shadow-none bg-transparent")}>
-      {/* Header Block */}
-      <div className="flex items-stretch border-b border-slate-800/80">
-        <div className="flex flex-col items-center justify-center bg-blue-600/10 border-r border-blue-500/20 px-4 py-3 min-w-[120px]">
-          <span className="text-[9px] uppercase tracking-widest text-blue-400/70 mb-0.5">ASIN</span>
-          <span className="font-mono text-[15px] text-blue-300 font-bold tracking-widest">
-            {item.asin || "N/A"}
-          </span>
+      {/* Header Block: Image | (ASIN, Brand, View) on top + Title below */}
+      <div className="flex items-stretch border-b border-slate-800/80 gap-3 p-3">
+        <div className="shrink-0 w-20 h-20 sm:w-24 sm:h-24 rounded-md bg-slate-950 border border-slate-800 overflow-hidden flex items-center justify-center">
+          {item.image ? (
+            <img
+              src={item.image}
+              alt={item.title}
+              className="w-full h-full object-contain"
+              loading="lazy"
+              onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+            />
+          ) : (
+            <Search className="w-6 h-6 text-slate-700" />
+          )}
         </div>
-        <div className="flex-1 min-w-0 px-4 py-3 flex flex-col justify-center">
-          <div className="flex items-center justify-between gap-3 mb-1">
-            <span className="text-[9px] uppercase tracking-widest text-slate-500">Product</span>
-            <div className="flex items-center gap-2 shrink-0">
-              {item.detectedBrand && (
-                <Badge className="bg-slate-800 text-slate-300 border-slate-700 text-[10px] py-0 h-5 font-normal">
-                  {item.detectedBrand}
-                </Badge>
-              )}
-              {item.asin && (
-                <a
-                  href={`https://www.amazon.com/dp/${item.asin}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1 text-[10px] font-medium text-slate-500 hover:text-blue-400 transition-colors whitespace-nowrap"
-                >
-                  View on Amazon <ExternalLink className="w-3 h-3" />
-                </a>
-              )}
-            </div>
+        <div className="flex-1 min-w-0 flex flex-col justify-center gap-1.5">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-mono text-[13px] text-blue-300 font-bold tracking-widest bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">
+              {item.asin || "N/A"}
+            </span>
+            {item.detectedBrand && (
+              <Badge className="bg-slate-800 text-slate-300 border-slate-700 text-[10px] py-0 h-5 font-normal">
+                {item.detectedBrand}
+              </Badge>
+            )}
+            {item.asin && (
+              <a
+                href={`https://www.amazon.com/dp/${item.asin}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 text-[10px] font-medium text-slate-500 hover:text-blue-400 transition-colors whitespace-nowrap ml-auto"
+              >
+                View on Amazon <ExternalLink className="w-3 h-3" />
+              </a>
+            )}
           </div>
           <h3 className="text-sm font-semibold text-slate-100 leading-snug break-words">
             {item.title}
@@ -534,59 +540,6 @@ function ResultCard({ item, index, noBorder }: { item: any, index: number, noBor
       </div>
 
       <CardContent className="p-4 space-y-4">
-        {/* Product Snapshot / Analysis */}
-        {item.analysis && (
-          <div className="bg-slate-950/60 border border-slate-800 rounded-lg p-3.5 space-y-3">
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0">
-                <span className="text-[9px] uppercase tracking-widest text-slate-500 block mb-1">Core Product</span>
-                <div className="text-base font-semibold text-slate-100 leading-tight">
-                  {item.analysis.coreProduct}
-                </div>
-              </div>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button className="text-slate-600 hover:text-slate-400 transition-colors shrink-0 mt-0.5">
-                    <Info className="w-3.5 h-3.5" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent className="max-w-[240px] bg-slate-900 border-slate-800 text-[11px] text-slate-300 p-2.5">
-                  <p className="font-semibold text-slate-100 mb-1">How we framed it</p>
-                  We distill long Amazon titles into the core product type and key attributes, then anchor every keyword on that understanding.
-                </TooltipContent>
-              </Tooltip>
-            </div>
-
-            {item.analysis.attributes?.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {item.analysis.attributes.map((attr: string) => (
-                  <span
-                    key={attr}
-                    className="text-[11px] px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-slate-400"
-                  >
-                    {attr}
-                  </span>
-                ))}
-              </div>
-            )}
-
-            {(item.analysis.useCase || item.analysis.audience) && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 pt-2 border-t border-slate-800/60">
-                {item.analysis.useCase && (
-                  <div className="text-[11px] text-slate-500">
-                    <span className="font-medium text-slate-400">Use case:</span> {item.analysis.useCase}
-                  </div>
-                )}
-                {item.analysis.audience && (
-                  <div className="text-[11px] text-slate-500">
-                    <span className="font-medium text-slate-400">Audience:</span> {item.analysis.audience}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
         {/* Keywords Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
           <KeywordSection
