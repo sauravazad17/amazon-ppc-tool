@@ -322,12 +322,15 @@ export async function getBrandByAsin(asin: string): Promise<string | null> {
 export interface SearchHit {
   asin: string;
   title: string;
+  searchPrice?: number | null;
+  searchRating?: number | null;
+  searchImage?: string | null;
 }
 
 /**
- * Scrape Amazon search results page for ASIN + title pairs in the order they appear.
+ * Scrape Amazon search results page for ASIN + title + price + rating + image.
  * Strategy: find each unique ASIN occurrence, then look at a window of HTML around it
- * for the nearest title (h2 / aria-label / alt text).
+ * for the nearest title (h2 / aria-label / alt text), price, rating and image.
  */
 function parseSearchHits(html: string): SearchHit[] {
   const hits: SearchHit[] = [];
@@ -340,26 +343,63 @@ function parseSearchHits(html: string): SearchHit[] {
     seen.add(asin);
     const start = m.index;
     const end = Math.min(html.length, start + 8000);
-    const window = html.slice(start, end);
+    const win = html.slice(start, end);
 
+    // --- Title ---
     let title = "";
-    const h2 = window.match(
+    const h2 = win.match(
       /<h2[^>]*>[\s\S]*?<span[^>]*>([\s\S]*?)<\/span>[\s\S]*?<\/h2>/i,
     );
     if (h2?.[1]) {
       title = cleanWs(decodeEntities(h2[1].replace(/<[^>]+>/g, "")));
     }
     if (!title) {
-      const aria = window.match(
+      const aria = win.match(
         /aria-label="([^"]+)"[^>]*href="[^"]*\/dp\/B0[A-Z0-9]{8}/i,
       );
       if (aria?.[1]) title = cleanWs(decodeEntities(aria[1]));
     }
     if (!title) {
-      const alt = window.match(/<img[^>]*alt="([^"]{20,})"/i);
+      const alt = win.match(/<img[^>]*alt="([^"]{20,})"/i);
       if (alt?.[1]) title = cleanWs(decodeEntities(alt[1]));
     }
-    hits.push({ asin, title });
+
+    // --- Price (from a-offscreen span or a-price-whole) ---
+    let searchPrice: number | null = null;
+    const offscreen = win.match(/class="a-offscreen"\s*>\s*\$([\d,]+(?:\.\d{1,2})?)\s*</i);
+    if (offscreen?.[1]) {
+      const v = parseFloat(offscreen[1].replace(/,/g, ""));
+      if (!isNaN(v) && v > 0) searchPrice = v;
+    }
+    if (searchPrice == null) {
+      const wholeM = win.match(/class="a-price-whole"\s*>([\d,]+)<\/span>[\s\S]{0,60}class="a-price-fraction"\s*>(\d+)<\/span>/i);
+      if (wholeM?.[1] && wholeM?.[2]) {
+        const v = parseFloat(`${wholeM[1].replace(/,/g, "")}.${wholeM[2]}`);
+        if (!isNaN(v) && v > 0) searchPrice = v;
+      }
+    }
+
+    // --- Rating (from aria-label or "X out of 5") ---
+    let searchRating: number | null = null;
+    const ratingAria = win.match(/aria-label="([\d.]+)\s+out\s+of\s+5\s+stars"/i);
+    if (ratingAria?.[1]) {
+      const v = parseFloat(ratingAria[1]);
+      if (!isNaN(v) && v >= 1 && v <= 5) searchRating = v;
+    }
+    if (searchRating == null) {
+      const ratingText = win.match(/([\d.]+)\s+out\s+of\s+5\s+stars/i);
+      if (ratingText?.[1]) {
+        const v = parseFloat(ratingText[1]);
+        if (!isNaN(v) && v >= 1 && v <= 5) searchRating = v;
+      }
+    }
+
+    // --- Image ---
+    let searchImage: string | null = null;
+    const imgM = win.match(/<img[^>]+src="(https:\/\/m\.media-amazon\.com\/images\/[^"]+)"/i);
+    if (imgM?.[1]) searchImage = imgM[1];
+
+    hits.push({ asin, title, searchPrice, searchRating, searchImage });
   }
   return hits;
 }
@@ -423,10 +463,15 @@ export async function searchCompetitorHits(
     limit?: number;
     excludeAsin?: string | null;
     excludeBrand?: string | null;
+    sortBy?: "price-desc" | "price-asc" | "review-rank";
   } = {},
 ): Promise<SearchHit[]> {
   const limit = options.limit ?? 25;
-  const url = `https://www.amazon.com/s?k=${encodeURIComponent(query)}&ref=nb_sb_noss`;
+  let url = `https://www.amazon.com/s?k=${encodeURIComponent(query)}`;
+  if (options.sortBy === "price-desc") url += "&s=price-desc-rank";
+  else if (options.sortBy === "price-asc") url += "&s=price-asc-rank";
+  else if (options.sortBy === "review-rank") url += "&s=review-rank";
+  url += "&ref=nb_sb_noss";
   const html = await fetchAmazon(url);
 
   const excludeAsin = options.excludeAsin?.toUpperCase();

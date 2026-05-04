@@ -265,7 +265,7 @@ export default function Home() {
           </div>
         </header>
 
-        <main className="max-w-screen-2xl mx-auto w-full flex-1 grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-0">
+        <main className="max-w-screen-2xl mx-auto w-full flex-1 grid grid-cols-1 lg:grid-cols-[160px_1fr] gap-0">
           {/* Left Sidebar */}
           <aside className="lg:h-[calc(100vh-4rem)] lg:sticky lg:top-16 border-r border-white/50 bg-white/60 backdrop-blur-xl overflow-y-auto px-5 py-6">
             <Form {...form}>
@@ -684,10 +684,10 @@ function ResultCard({ item, index, noBorder, selectedTargets, onToggleTarget }: 
             {/* Lower Rating */}
             <TargetBucket
               label="Lower Rating"
-              icon={<Star className="w-3.5 h-3.5 text-rose-600" />}
-              headerClass="bg-gradient-to-r from-rose-50 to-pink-50 border-rose-100"
-              cardClass="border-rose-100 hover:border-rose-300"
-              badgeClass="bg-rose-100 text-rose-700"
+              icon={<Star className="w-3.5 h-3.5 text-blue-600" />}
+              headerClass="bg-gradient-to-r from-blue-50 to-sky-50 border-blue-100"
+              cardClass="border-blue-100 hover:border-blue-300"
+              badgeClass="bg-blue-100 text-blue-700"
               targets={lowerRating}
               userAsin={userAsin}
               selectedTargets={selectedTargets}
@@ -733,7 +733,7 @@ function TargetBucket({ label, icon, headerClass, cardClass, badgeClass, targets
   };
 
   return (
-    <div className={cn("border rounded-xl overflow-hidden shadow-sm", headerClass.includes("orange") ? "border-orange-100" : "border-rose-100")}>
+    <div className={cn("border rounded-xl overflow-hidden shadow-sm", headerClass.includes("orange") ? "border-orange-100" : headerClass.includes("blue") ? "border-blue-100" : "border-rose-100")}>
       <div className={cn("flex items-center justify-between px-3 py-2 border-b", headerClass)}>
         <div className="flex items-center gap-2">
           {icon}
@@ -789,7 +789,7 @@ function TargetBucket({ label, icon, headerClass, cardClass, badgeClass, targets
                       </span>
                     )}
                   </div>
-                  <p className="text-[11px] text-slate-600 truncate leading-tight">{t.title}</p>
+                  <p className="text-[11px] text-slate-600 line-clamp-2 leading-tight">{t.title}</p>
                 </div>
                 {/* Action buttons — slightly bigger */}
                 <div className="flex items-center gap-1.5 shrink-0 opacity-50 group-hover:opacity-100 transition-opacity">

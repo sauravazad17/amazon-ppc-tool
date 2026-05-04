@@ -218,27 +218,40 @@ function buildCompetitorPickPrompt(args: {
 }
 
 /**
- * Fetch full product data (brand, title, image, price, rating) for the top N candidates in parallel.
+ * Fetch full product data for the top N candidates using throttled concurrency (4 at a time)
+ * to avoid Amazon bot detection. Returns enriched hits with brand, title, image, price, rating.
  */
 async function enrichCompetitorData(
   candidates: SearchHit[],
   limit: number,
 ): Promise<EnrichedHit[]> {
   const top = candidates.slice(0, limit);
-  const enriched = await Promise.all(
-    top.map(async (c): Promise<EnrichedHit> => {
-      const info = await getFullProductInfoByAsin(c.asin);
-      return {
-        ...c,
-        actualBrand: info?.brand ?? brandFromTitle(c.title),
-        actualTitle: info?.title ?? c.title,
-        actualImage: info?.image ?? null,
-        actualPrice: info?.price ?? null,
-        actualRating: info?.rating ?? null,
-      };
-    }),
-  );
-  return enriched;
+  const results: EnrichedHit[] = [];
+  const BATCH = 4;
+
+  for (let i = 0; i < top.length; i += BATCH) {
+    const batch = top.slice(i, i + BATCH);
+    const batchResults = await Promise.all(
+      batch.map(async (c): Promise<EnrichedHit> => {
+        const info = await getFullProductInfoByAsin(c.asin);
+        return {
+          ...c,
+          actualBrand: info?.brand ?? brandFromTitle(c.title),
+          actualTitle: info?.title ?? c.title,
+          actualImage: info?.image ?? null,
+          actualPrice: info?.price ?? null,
+          actualRating: info?.rating ?? null,
+        };
+      }),
+    );
+    results.push(...batchResults);
+    // Small pause between batches to reduce rate-limiting risk
+    if (i + BATCH < top.length) {
+      await new Promise((r) => setTimeout(r, 300));
+    }
+  }
+
+  return results;
 }
 
 /**
@@ -467,10 +480,29 @@ async function generateForOne(
     }
   }
 
+  // Also search by price-descending to find higher-priced competitors for the HP bucket.
+  // Put these FIRST in the merged list so they are prioritised during enrichment.
+  if (queryCandidates[0]) {
+    try {
+      const hpHits = await searchCompetitorHits(queryCandidates[0], {
+        limit: 20,
+        excludeAsin: asin,
+        excludeBrand: userBrand,
+        sortBy: "price-desc",
+      });
+      const regularAsins = new Set(candidates.map((c) => c.asin));
+      const uniqueHpHits = hpHits.filter((h) => !regularAsins.has(h.asin));
+      // Interleave: price-desc unique first (for HP), then regular candidates (for LR)
+      candidates = [...uniqueHpHits, ...candidates];
+    } catch {
+      // ignore — regular candidates still used
+    }
+  }
+
   if (candidates.length > 0) {
     try {
       // Fetch full data (brand, title, image, price, rating) for each candidate in parallel.
-      const enriched = await enrichCompetitorData(candidates, 18);
+      const enriched = await enrichCompetitorData(candidates, 24);
       competitorTargets = await pickAndBuildTargets(
         enriched,
         title,
