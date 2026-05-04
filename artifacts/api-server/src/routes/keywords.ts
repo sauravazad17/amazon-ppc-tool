@@ -279,18 +279,18 @@ function buildTargetBuckets(
     }
   };
 
-  // Higher price bucket: prefer those with known higher price; fall back to unknown price
-  const hpPool = [
-    ...orderedPool.filter(c => userPrice == null || c.actualPrice == null || c.actualPrice > userPrice),
-    ...orderedPool.filter(c => userPrice != null && c.actualPrice != null && c.actualPrice <= userPrice),
-  ];
+  // Higher price: STRICTLY competitors priced above the user's product.
+  // If userPrice is unknown, include candidates whose price is known (any price) for comparison value.
+  const hpPool = userPrice != null
+    ? orderedPool.filter(c => c.actualPrice != null && c.actualPrice > userPrice)
+    : orderedPool.filter(c => c.actualPrice != null);
   pickFromPool(hpPool, "higher_price");
 
-  // Lower rating bucket: prefer those with known lower rating; fall back to unknown rating
-  const lrPool = [
-    ...orderedPool.filter(c => userRating == null || c.actualRating == null || c.actualRating < userRating),
-    ...orderedPool.filter(c => userRating != null && c.actualRating != null && c.actualRating >= userRating),
-  ];
+  // Lower rating: STRICTLY competitors rated below the user's product.
+  // If userRating is unknown, include candidates whose rating is known for comparison value.
+  const lrPool = userRating != null
+    ? orderedPool.filter(c => c.actualRating != null && c.actualRating < userRating)
+    : orderedPool.filter(c => c.actualRating != null);
   pickFromPool(lrPool, "lower_rating");
 
   return results;
@@ -454,7 +454,7 @@ async function generateForOne(
   for (const q of queryCandidates) {
     try {
       const hits = await searchCompetitorHits(q, {
-        limit: 20,
+        limit: 30,
         excludeAsin: asin,
         excludeBrand: userBrand,
       });
@@ -470,7 +470,7 @@ async function generateForOne(
   if (candidates.length > 0) {
     try {
       // Fetch full data (brand, title, image, price, rating) for each candidate in parallel.
-      const enriched = await enrichCompetitorData(candidates, 12);
+      const enriched = await enrichCompetitorData(candidates, 18);
       competitorTargets = await pickAndBuildTargets(
         enriched,
         title,
