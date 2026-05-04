@@ -336,7 +336,7 @@ export default function Home() {
                 <Button
                   type="submit"
                   disabled={mutation.isPending}
-                  className="w-full h-11 bg-gradient-to-r from-violet-600 via-blue-600 to-cyan-600 hover:from-violet-700 hover:via-blue-700 hover:to-cyan-700 text-white font-bold transition-all shadow-lg shadow-violet-500/30 hover:shadow-xl hover:shadow-violet-500/40 hover:-translate-y-0.5 border-0"
+                  className="w-full h-auto py-2.5 whitespace-normal bg-gradient-to-r from-violet-600 via-blue-600 to-cyan-600 hover:from-violet-700 hover:via-blue-700 hover:to-cyan-700 text-white font-bold transition-all shadow-lg shadow-violet-500/30 hover:shadow-xl hover:shadow-violet-500/40 hover:-translate-y-0.5 border-0"
                   data-testid="btn-generate"
                 >
                   {mutation.isPending ? (
