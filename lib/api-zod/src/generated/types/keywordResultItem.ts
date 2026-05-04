@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { CompetitorTarget } from "./competitorTarget";
 import type { Keyword } from "./keyword";
 import type { ProductAnalysis } from "./productAnalysis";
 
@@ -15,11 +16,15 @@ export interface KeywordResultItem {
   title: string;
   /** Main product image URL scraped from the Amazon product page */
   image?: string | null;
+  /** User product price scraped from Amazon */
+  price?: number | null;
+  /** User product rating scraped from Amazon */
+  rating?: number | null;
   /** The user's brand detected from the product page (used to exclude same-brand competitors) */
   detectedBrand?: string | null;
   analysis?: ProductAnalysis;
   keywords: Keyword[];
-  competitor_asins: string[];
+  competitor_targets: CompetitorTarget[];
   /** Error message if this item failed */
   error?: string | null;
 }

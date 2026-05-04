@@ -4,7 +4,7 @@ import { openai } from "@workspace/integrations-openai-ai-server";
 import {
   brandFromTitle,
   brandsMatch,
-  getBrandByAsin,
+  getFullProductInfoByAsin,
   getProductInfoByAsin,
   isValidAsin,
   normalizeBrand,
@@ -144,10 +144,21 @@ interface LlmCompetitorOutput {
   rationale_brands?: string[];
 }
 
+interface CompetitorTarget {
+  asin: string;
+  title: string;
+  image: string | null;
+  price: number | null;
+  rating: number | null;
+  category: "higher_price" | "lower_rating";
+}
+
 interface BatchItem {
   asin?: string;
   title: string;
   image?: string | null;
+  price?: number | null;
+  rating?: number | null;
   detectedBrand?: string | null;
   analysis?: {
     coreProduct: string;
@@ -156,12 +167,16 @@ interface BatchItem {
     audience?: string | null;
   };
   keywords: Array<{ type: "High Intent" | "Core" | "Long Tail"; value: string }>;
-  competitor_asins: string[];
+  competitor_targets: CompetitorTarget[];
   error?: string;
 }
 
 interface EnrichedHit extends SearchHit {
   actualBrand: string | null;
+  actualTitle: string;
+  actualImage: string | null;
+  actualPrice: number | null;
+  actualRating: number | null;
 }
 
 function buildKeywordPrompt(input: {
@@ -203,57 +218,123 @@ function buildCompetitorPickPrompt(args: {
 }
 
 /**
- * For the top N candidates, fetch their actual brand from the product page in parallel.
- * Falls back to brandFromTitle if the fetch fails.
+ * Fetch full product data (brand, title, image, price, rating) for the top N candidates in parallel.
  */
-async function enrichWithActualBrand(
+async function enrichCompetitorData(
   candidates: SearchHit[],
   limit: number,
 ): Promise<EnrichedHit[]> {
   const top = candidates.slice(0, limit);
   const enriched = await Promise.all(
     top.map(async (c): Promise<EnrichedHit> => {
-      const brand = await getBrandByAsin(c.asin);
-      return { ...c, actualBrand: brand ?? brandFromTitle(c.title) };
+      const info = await getFullProductInfoByAsin(c.asin);
+      return {
+        ...c,
+        actualBrand: info?.brand ?? brandFromTitle(c.title),
+        actualTitle: info?.title ?? c.title,
+        actualImage: info?.image ?? null,
+        actualPrice: info?.price ?? null,
+        actualRating: info?.rating ?? null,
+      };
     }),
   );
   return enriched;
 }
 
-async function pickDiverseCompetitors(
+/**
+ * From the LLM-approved (or heuristic) pool, build two target buckets:
+ * - higher_price: up to 5 competitors with price > userPrice (or all if unknown)
+ * - lower_rating: up to 5 competitors with rating < userRating (or all if unknown)
+ * Each bucket enforces brand diversity (max 2 per brand).
+ * The same ASIN may appear in both buckets.
+ */
+function buildTargetBuckets(
+  orderedPool: EnrichedHit[],
+  userPrice: number | null,
+  userRating: number | null,
+): CompetitorTarget[] {
+  const results: CompetitorTarget[] = [];
+
+  const pickFromPool = (
+    pool: EnrichedHit[],
+    category: "higher_price" | "lower_rating",
+  ): void => {
+    const brandCount = new Map<string, number>();
+    let count = 0;
+    for (const c of pool) {
+      if (count >= 5) break;
+      const key = normalizeBrand(c.actualBrand ?? "") || `__${count}`;
+      const bCount = brandCount.get(key) ?? 0;
+      if (bCount >= 2) continue;
+      brandCount.set(key, bCount + 1);
+      results.push({
+        asin: c.asin,
+        title: c.actualTitle,
+        image: c.actualImage,
+        price: c.actualPrice,
+        rating: c.actualRating,
+        category,
+      });
+      count++;
+    }
+  };
+
+  // Higher price bucket: prefer those with known higher price; fall back to unknown price
+  const hpPool = [
+    ...orderedPool.filter(c => userPrice == null || c.actualPrice == null || c.actualPrice > userPrice),
+    ...orderedPool.filter(c => userPrice != null && c.actualPrice != null && c.actualPrice <= userPrice),
+  ];
+  pickFromPool(hpPool, "higher_price");
+
+  // Lower rating bucket: prefer those with known lower rating; fall back to unknown rating
+  const lrPool = [
+    ...orderedPool.filter(c => userRating == null || c.actualRating == null || c.actualRating < userRating),
+    ...orderedPool.filter(c => userRating != null && c.actualRating != null && c.actualRating >= userRating),
+  ];
+  pickFromPool(lrPool, "lower_rating");
+
+  return results;
+}
+
+async function pickAndBuildTargets(
   enriched: EnrichedHit[],
   userTitle: string,
   userBrand: string | null,
   coreProduct: string,
   attributes: string[],
-): Promise<string[]> {
-  // Drop any candidate that matches the user's brand (verified) — hard exclusion.
+  userPrice: number | null,
+  userRating: number | null,
+): Promise<CompetitorTarget[]> {
+  // Hard-exclude user's brand
   const safeBrandPool = enriched.filter((c) => {
     if (!userBrand) return true;
     if (brandsMatch(userBrand, c.actualBrand)) return false;
-    // Extra safety: substring of user brand inside title
     const normUser = normalizeBrand(userBrand);
-    if (normUser.length >= 4 && normalizeBrand(c.title).includes(normUser)) return false;
+    if (normUser.length >= 4 && normalizeBrand(c.actualTitle).includes(normUser)) return false;
     return true;
   });
 
-  // Heuristic fallback: enforce max 2 per brand on the safe pool.
-  const heuristic = (): string[] => {
-    const selected: string[] = [];
+  if (safeBrandPool.length === 0) return [];
+
+  // Heuristic ordering: brand-diverse pool for small candidate sets
+  const heuristicOrdered = (): EnrichedHit[] => {
+    const ordered: EnrichedHit[] = [];
     const brandCount = new Map<string, number>();
     for (const c of safeBrandPool) {
-      if (selected.length >= 5) break;
-      const key = normalizeBrand(c.actualBrand ?? "") || `__${selected.length}`;
+      const key = normalizeBrand(c.actualBrand ?? "") || `__${ordered.length}`;
       const count = brandCount.get(key) ?? 0;
       if (count >= 2) continue;
       brandCount.set(key, count + 1);
-      selected.push(c.asin);
+      ordered.push(c);
     }
-    return selected;
+    // Add remaining for fallback
+    safeBrandPool.forEach(c => { if (!ordered.includes(c)) ordered.push(c); });
+    return ordered;
   };
 
-  if (safeBrandPool.length === 0) return [];
-  if (safeBrandPool.length <= 3) return heuristic();
+  if (safeBrandPool.length <= 3) {
+    return buildTargetBuckets(heuristicOrdered(), userPrice, userRating);
+  }
 
   try {
     const completion = await openai.chat.completions.create({
@@ -279,41 +360,22 @@ async function pickDiverseCompetitors(
     const safeMap = new Map(safeBrandPool.map((c) => [c.asin, c]));
     const llmPicks = (raw.selected ?? [])
       .map((a) => a?.trim().toUpperCase())
-      .filter((a): a is string => !!a && safeMap.has(a));
+      .filter((a): a is string => !!a && safeMap.has(a))
+      .filter((a) => {
+        const hit = safeMap.get(a);
+        return !userBrand || !brandsMatch(userBrand, hit?.actualBrand ?? null);
+      });
 
-    // Final safety pass: enforce no-user-brand (already done) and max-2-per-brand on LLM picks
-    const safe: string[] = [];
-    const brandCount = new Map<string, number>();
-    for (const asin of llmPicks) {
-      const hit = safeMap.get(asin);
-      if (!hit) continue;
-      // Re-verify brand exclusion (paranoid)
-      if (userBrand && brandsMatch(userBrand, hit.actualBrand)) continue;
-      const key = normalizeBrand(hit.actualBrand ?? "") || `__${safe.length}`;
-      const count = brandCount.get(key) ?? 0;
-      if (count >= 2) continue;
-      brandCount.set(key, count + 1);
-      safe.push(asin);
-      if (safe.length >= 5) break;
-    }
+    // Build ordered pool: LLM picks first, then remaining safe pool for fallback
+    const llmSet = new Set(llmPicks);
+    const orderedPool: EnrichedHit[] = [
+      ...llmPicks.map(a => safeMap.get(a)).filter((c): c is EnrichedHit => !!c),
+      ...safeBrandPool.filter(c => !llmSet.has(c.asin)),
+    ];
 
-    // Soft top-up: if LLM returned fewer than 5, fill from the safe brand pool while
-    // still honoring max-2-per-brand. We only relax similarity here — never user-brand.
-    if (safe.length < 5) {
-      for (const c of safeBrandPool) {
-        if (safe.length >= 5) break;
-        if (safe.includes(c.asin)) continue;
-        const key = normalizeBrand(c.actualBrand ?? "") || `__${safe.length}`;
-        const count = brandCount.get(key) ?? 0;
-        if (count >= 2) continue;
-        brandCount.set(key, count + 1);
-        safe.push(c.asin);
-      }
-    }
-
-    return safe;
+    return buildTargetBuckets(orderedPool, userPrice, userRating);
   } catch {
-    return heuristic();
+    return buildTargetBuckets(heuristicOrdered(), userPrice, userRating);
   }
 }
 
@@ -322,6 +384,8 @@ async function generateForOne(
   title: string,
   brand: string | null | undefined,
   image: string | null | undefined,
+  userPrice: number | null | undefined,
+  userRating: number | null | undefined,
   category: string | null | undefined,
   priceRange: string | null | undefined,
 ): Promise<BatchItem> {
@@ -385,7 +449,7 @@ async function generateForOne(
     ),
   );
 
-  let competitorAsins: string[] = [];
+  let competitorTargets: CompetitorTarget[] = [];
   let candidates: SearchHit[] = [];
   for (const q of queryCandidates) {
     try {
@@ -405,19 +469,19 @@ async function generateForOne(
 
   if (candidates.length > 0) {
     try {
-      // Verify each top candidate's actual brand from its product page (parallel) so we
-      // never accidentally include a same-brand competitor when the search-result title
-      // doesn't lead with the brand name.
-      const enriched = await enrichWithActualBrand(candidates, 8);
-      competitorAsins = await pickDiverseCompetitors(
+      // Fetch full data (brand, title, image, price, rating) for each candidate in parallel.
+      const enriched = await enrichCompetitorData(candidates, 12);
+      competitorTargets = await pickAndBuildTargets(
         enriched,
         title,
         userBrand,
         analysis?.coreProduct || queryCandidates[0] || title,
         analysis?.attributes ?? [],
+        userPrice ?? null,
+        userRating ?? null,
       );
     } catch {
-      competitorAsins = [];
+      competitorTargets = [];
     }
   }
 
@@ -425,10 +489,12 @@ async function generateForOne(
     asin,
     title,
     image: image ?? null,
+    price: userPrice ?? null,
+    rating: userRating ?? null,
     detectedBrand: userBrand,
     analysis,
     keywords: cleanedKeywords as BatchItem["keywords"],
-    competitor_asins: competitorAsins,
+    competitor_targets: competitorTargets,
   };
 }
 
@@ -493,7 +559,7 @@ router.post("/keywords/generate", async (req: Request, res: Response) => {
               asin,
               title: "",
               keywords: [],
-              competitor_asins: [],
+              competitor_targets: [],
               error: `Could not find Amazon product page for ${asin}.`,
             };
           }
@@ -503,6 +569,8 @@ router.post("/keywords/generate", async (req: Request, res: Response) => {
             info.title,
             brand,
             info.image,
+            info.price,
+            info.rating,
             input.category,
             input.priceRange,
           );
@@ -513,7 +581,7 @@ router.post("/keywords/generate", async (req: Request, res: Response) => {
             asin,
             title: "",
             keywords: [],
-            competitor_asins: [],
+            competitor_targets: [],
             error: message,
           };
         }
@@ -523,6 +591,8 @@ router.post("/keywords/generate", async (req: Request, res: Response) => {
         undefined,
         rawTitle,
         input.brand,
+        null,
+        null,
         null,
         input.category,
         input.priceRange,

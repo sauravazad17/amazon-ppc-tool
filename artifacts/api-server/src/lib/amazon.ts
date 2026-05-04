@@ -229,10 +229,56 @@ function extractImageFromProductHtml(html: string): string | null {
   return null;
 }
 
+function extractPriceFromProductHtml(html: string): number | null {
+  // JSON "priceAmount": 24.99
+  const priceAmountJson = html.match(/"priceAmount"\s*:\s*([\d.]+)/);
+  if (priceAmountJson?.[1]) {
+    const v = parseFloat(priceAmountJson[1]);
+    if (!isNaN(v) && v > 0) return v;
+  }
+  // a-offscreen span inside a-price (most common)
+  const offscreen = html.match(/class="a-offscreen"\s*>\s*\$([\d,]+(?:\.\d{1,2})?)\s*</i);
+  if (offscreen?.[1]) {
+    const v = parseFloat(offscreen[1].replace(/,/g, ""));
+    if (!isNaN(v) && v > 0) return v;
+  }
+  // priceblock_ourprice / priceblock_dealprice
+  const priceBlock = html.match(/id="priceblock_(?:ourprice|dealprice)"[^>]*>\s*\$([\d,]+(?:\.\d{1,2})?)/i);
+  if (priceBlock?.[1]) {
+    const v = parseFloat(priceBlock[1].replace(/,/g, ""));
+    if (!isNaN(v) && v > 0) return v;
+  }
+  // "price":{"value": 24.99}
+  const priceValue = html.match(/"price"\s*:\s*\{\s*"value"\s*:\s*([\d.]+)/);
+  if (priceValue?.[1]) {
+    const v = parseFloat(priceValue[1]);
+    if (!isNaN(v) && v > 0) return v;
+  }
+  return null;
+}
+
+function extractRatingFromProductHtml(html: string): number | null {
+  // "4.5 out of 5 stars"
+  const ratingText = html.match(/([\d.]+)\s+out\s+of\s+5\s+stars/i);
+  if (ratingText?.[1]) {
+    const v = parseFloat(ratingText[1]);
+    if (!isNaN(v) && v >= 1 && v <= 5) return v;
+  }
+  // "ratingScore":"4.5"
+  const ratingScore = html.match(/"ratingScore"\s*:\s*"([\d.]+)"/);
+  if (ratingScore?.[1]) {
+    const v = parseFloat(ratingScore[1]);
+    if (!isNaN(v) && v >= 1 && v <= 5) return v;
+  }
+  return null;
+}
+
 export interface ProductInfo {
   title: string;
   brand: string | null;
   image: string | null;
+  price: number | null;
+  rating: number | null;
 }
 
 export async function getProductInfoByAsin(
@@ -245,7 +291,19 @@ export async function getProductInfoByAsin(
   if (!title) return null;
   const brand = extractBrandFromProductHtml(html);
   const image = extractImageFromProductHtml(html);
-  return { title, brand, image };
+  const price = extractPriceFromProductHtml(html);
+  const rating = extractRatingFromProductHtml(html);
+  return { title, brand, image, price, rating };
+}
+
+export async function getFullProductInfoByAsin(
+  asin: string,
+): Promise<ProductInfo | null> {
+  try {
+    return await getProductInfoByAsin(asin);
+  } catch {
+    return null;
+  }
 }
 
 /**

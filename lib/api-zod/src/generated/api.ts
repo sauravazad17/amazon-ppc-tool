@@ -60,6 +60,14 @@ export const GenerateKeywordsResponse = zod.object({
         .describe(
           "Main product image URL scraped from the Amazon product page",
         ),
+      price: zod
+        .number()
+        .nullish()
+        .describe("User product price scraped from Amazon"),
+      rating: zod
+        .number()
+        .nullish()
+        .describe("User product rating scraped from Amazon"),
       detectedBrand: zod
         .string()
         .nullish()
@@ -92,7 +100,18 @@ export const GenerateKeywordsResponse = zod.object({
           value: zod.string(),
         }),
       ),
-      competitor_asins: zod.array(zod.string()),
+      competitor_targets: zod.array(
+        zod.object({
+          asin: zod.string(),
+          title: zod.string(),
+          image: zod.string().nullish(),
+          price: zod.number().nullish(),
+          rating: zod.number().nullish(),
+          category: zod
+            .enum(["higher_price", "lower_rating"])
+            .describe("Which targeting bucket this competitor falls in"),
+        }),
+      ),
       error: zod
         .string()
         .nullish()

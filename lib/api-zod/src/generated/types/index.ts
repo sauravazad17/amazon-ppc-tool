@@ -7,6 +7,8 @@
  */
 
 export * from "./asinLookupResponse";
+export * from "./competitorTarget";
+export * from "./competitorTargetCategory";
 export * from "./errorResponse";
 export * from "./generateKeywordsRequest";
 export * from "./healthStatus";

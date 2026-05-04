@@ -171,6 +171,30 @@ components:
       required:
         - coreProduct
         - attributes
+    CompetitorTarget:
+      type: object
+      properties:
+        asin:
+          type: string
+        title:
+          type: string
+        image:
+          type: string
+          nullable: true
+        price:
+          type: number
+          nullable: true
+        rating:
+          type: number
+          nullable: true
+        category:
+          type: string
+          enum: ["higher_price", "lower_rating"]
+          description: Which targeting bucket this competitor falls in
+      required:
+        - asin
+        - title
+        - category
     KeywordResultItem:
       type: object
       properties:
@@ -185,6 +209,14 @@ components:
           type: string
           nullable: true
           description: Main product image URL scraped from the Amazon product page
+        price:
+          type: number
+          nullable: true
+          description: User product price scraped from Amazon
+        rating:
+          type: number
+          nullable: true
+          description: User product rating scraped from Amazon
         detectedBrand:
           type: string
           nullable: true
@@ -195,10 +227,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Keyword"
-        competitor_asins:
+        competitor_targets:
           type: array
           items:
-            type: string
+            $ref: "#/components/schemas/CompetitorTarget"
         error:
           type: string
           nullable: true
@@ -206,7 +238,7 @@ components:
       required:
         - title
         - keywords
-        - competitor_asins
+        - competitor_targets
     KeywordResult:
       type: object
       properties:
