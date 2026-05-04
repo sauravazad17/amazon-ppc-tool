@@ -59,6 +59,27 @@ export interface ProductAnalysis {
   audience?: string | null;
 }
 
+/**
+ * Which targeting bucket this competitor falls in
+ */
+export type CompetitorTargetCategory =
+  (typeof CompetitorTargetCategory)[keyof typeof CompetitorTargetCategory];
+
+export const CompetitorTargetCategory = {
+  higher_price: "higher_price",
+  lower_rating: "lower_rating",
+} as const;
+
+export interface CompetitorTarget {
+  asin: string;
+  title: string;
+  image?: string | null;
+  price?: number | null;
+  rating?: number | null;
+  /** Which targeting bucket this competitor falls in */
+  category: CompetitorTargetCategory;
+}
+
 export interface KeywordResultItem {
   /** The input ASIN (if generated from an ASIN) */
   asin?: string | null;
@@ -66,11 +87,15 @@ export interface KeywordResultItem {
   title: string;
   /** Main product image URL scraped from the Amazon product page */
   image?: string | null;
+  /** User product price scraped from Amazon */
+  price?: number | null;
+  /** User product rating scraped from Amazon */
+  rating?: number | null;
   /** The user's brand detected from the product page (used to exclude same-brand competitors) */
   detectedBrand?: string | null;
   analysis?: ProductAnalysis;
   keywords: Keyword[];
-  competitor_asins: string[];
+  competitor_targets: CompetitorTarget[];
   /** Error message if this item failed */
   error?: string | null;
 }

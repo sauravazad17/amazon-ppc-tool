@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { z } from "zod";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -17,9 +17,14 @@ import {
   Target,
   BarChart3,
   Sparkles,
+  TrendingUp,
+  Star,
+  CheckSquare,
+  Square,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useGenerateKeywords } from "@workspace/api-client-react";
+import type { CompetitorTarget } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
 
 import {
@@ -74,6 +79,8 @@ export default function Home() {
   const [showTitleInput, setShowTitleInput] = useState(false);
   const [duration, setDuration] = useState<number | null>(null);
   const startTimeRef = useRef<number | null>(null);
+  // selectedTargets: Set of "userAsin|competitorAsin" keys. Default = all selected.
+  const [selectedTargets, setSelectedTargets] = useState<Set<string>>(new Set());
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -125,7 +132,30 @@ export default function Home() {
     form.reset();
     mutation.reset();
     setDuration(null);
+    setSelectedTargets(new Set());
   };
+
+  // Initialize all targets as selected when results arrive
+  useEffect(() => {
+    if (!mutation.data?.items) return;
+    const allKeys = new Set<string>();
+    mutation.data.items.forEach(item => {
+      const base = item.asin || "title";
+      (item.competitor_targets ?? []).forEach(t => {
+        allKeys.add(`${base}|${t.asin}|${t.category}`);
+      });
+    });
+    setSelectedTargets(allKeys);
+  }, [mutation.data]);
+
+  const toggleTarget = useCallback((key: string) => {
+    setSelectedTargets(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
 
   const handlePaste = (e: React.ClipboardEvent) => {
     const text = e.clipboardData.getData("text");
@@ -156,14 +186,15 @@ export default function Home() {
     
     let csvRows = ["ASIN,Keyword/Target"];
     
+    const escape = (val: string) => {
+      if (val.includes(",") || val.includes("\"")) {
+        return `"${val.replace(/"/g, '""')}"`;
+      }
+      return val;
+    };
+
     mutation.data.items.forEach(item => {
       const asinVal = item.asin || "(title)";
-      const escape = (val: string) => {
-        if (val.includes(",") || val.includes("\"")) {
-          return `"${val.replace(/"/g, '""')}"`;
-        }
-        return val;
-      };
 
       // Keywords in order
       const types = ["High Intent", "Core", "Long Tail"] as const;
@@ -175,9 +206,12 @@ export default function Home() {
           });
       });
 
-      // Targets
-      item.competitor_asins.forEach(target => {
-        csvRows.push(`${asinVal},${target}`);
+      // Only selected competitor targets
+      (item.competitor_targets ?? []).forEach(target => {
+        const key = `${asinVal}|${target.asin}|${target.category}`;
+        if (selectedTargets.has(key)) {
+          csvRows.push(`${asinVal},${target.asin}`);
+        }
       });
     });
 
@@ -201,7 +235,8 @@ export default function Home() {
   };
 
   const totalKws = mutation.data?.items.reduce((acc, item) => acc + (item.keywords?.length || 0), 0) || 0;
-  const totalTargets = mutation.data?.items.reduce((acc, item) => acc + (item.competitor_asins?.length || 0), 0) || 0;
+  const totalTargets = mutation.data?.items.reduce((acc, item) => acc + (item.competitor_targets?.length || 0), 0) || 0;
+  const selectedTargetsCount = selectedTargets.size;
 
   return (
     <TooltipProvider>
@@ -347,7 +382,8 @@ export default function Home() {
                     {[
                       { color: "from-violet-500 to-fuchsia-500", text: <><span className="text-slate-900 font-semibold">Distills</span> long Amazon titles into the real product type.</> },
                       { color: "from-blue-500 to-cyan-500", text: <><span className="text-slate-900 font-semibold">30 conversion-grade</span> keywords per ASIN.</> },
-                      { color: "from-emerald-500 to-teal-500", text: <><span className="text-slate-900 font-semibold">5 competitor ASINs</span> from different brands.</> },
+                      { color: "from-amber-500 to-orange-500", text: <><span className="text-slate-900 font-semibold">5 Higher Price</span> competitor targets per ASIN.</> },
+                      { color: "from-emerald-500 to-teal-500", text: <><span className="text-slate-900 font-semibold">5 Lower Rating</span> competitor targets per ASIN.</> },
                     ].map((row, i) => (
                       <motion.div
                         key={i}
@@ -422,6 +458,15 @@ export default function Home() {
                         <span className="text-slate-500 uppercase tracking-tighter text-[9px] font-bold">Targets</span>
                         <span className="font-mono tabular-nums text-rose-600 font-semibold">{totalTargets}</span>
                       </div>
+                      {totalTargets > 0 && (
+                        <>
+                          <div className="w-px h-6 bg-slate-200" />
+                          <div className="flex flex-col">
+                            <span className="text-slate-500 uppercase tracking-tighter text-[9px] font-bold">Selected</span>
+                            <span className="font-mono tabular-nums text-violet-600 font-semibold">{selectedTargetsCount}</span>
+                          </div>
+                        </>
+                      )}
                       {duration !== null && (
                         <>
                           <div className="w-px h-6 bg-slate-200" />
@@ -450,7 +495,7 @@ export default function Home() {
 
                   <div className="p-6 space-y-3">
                     {mutation.data.items.length === 1 ? (
-                      <ResultCard item={mutation.data.items[0]} index={0} />
+                      <ResultCard item={mutation.data.items[0]} index={0} selectedTargets={selectedTargets} onToggleTarget={toggleTarget} />
                     ) : (
                       <Accordion type="single" collapsible defaultValue="item-0" className="space-y-3">
                         {mutation.data.items.map((item, idx) => (
@@ -463,7 +508,7 @@ export default function Home() {
                               </div>
                             </AccordionTrigger>
                             <AccordionContent className="bg-white/70 border border-white border-t-0 rounded-b-lg p-0 shadow-sm">
-                              <ResultCard item={item} index={idx} noBorder />
+                              <ResultCard item={item} index={idx} noBorder selectedTargets={selectedTargets} onToggleTarget={toggleTarget} />
                             </AccordionContent>
                           </AccordionItem>
                         ))}
@@ -517,7 +562,13 @@ function AnimatedLogo() {
   );
 }
 
-function ResultCard({ item, index, noBorder }: { item: any, index: number, noBorder?: boolean }) {
+function ResultCard({ item, index, noBorder, selectedTargets, onToggleTarget }: {
+  item: any;
+  index: number;
+  noBorder?: boolean;
+  selectedTargets: Set<string>;
+  onToggleTarget: (key: string) => void;
+}) {
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const copy = (val: string, id: string) => {
@@ -543,19 +594,19 @@ function ResultCard({ item, index, noBorder }: { item: any, index: number, noBor
     );
   }
 
+  const targets: CompetitorTarget[] = item.competitor_targets ?? [];
+  const higherPrice = targets.filter((t: CompetitorTarget) => t.category === "higher_price");
+  const lowerRating = targets.filter((t: CompetitorTarget) => t.category === "lower_rating");
+  const userAsin = item.asin || "title";
+
   return (
     <Card className={cn("bg-white border-white shadow-md shadow-violet-100/40 overflow-hidden", noBorder && "border-none shadow-none bg-transparent")}>
-      {/* Header Block: Image | (ASIN, Brand, View) on top + Title below */}
+      {/* Header Block */}
       <div className="flex items-stretch border-b border-slate-100 gap-3 p-3 bg-gradient-to-r from-violet-50/60 via-blue-50/40 to-cyan-50/60">
         <div className="shrink-0 w-20 h-20 sm:w-24 sm:h-24 rounded-lg bg-white border border-slate-200 overflow-hidden flex items-center justify-center shadow-sm">
           {item.image ? (
-            <img
-              src={item.image}
-              alt={item.title}
-              className="w-full h-full object-contain"
-              loading="lazy"
-              onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
-            />
+            <img src={item.image} alt={item.title} className="w-full h-full object-contain" loading="lazy"
+              onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
           ) : (
             <Search className="w-6 h-6 text-slate-300" />
           )}
@@ -570,112 +621,197 @@ function ResultCard({ item, index, noBorder }: { item: any, index: number, noBor
                 {item.detectedBrand}
               </Badge>
             )}
+            {item.price != null && (
+              <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px] py-0 h-5 font-semibold shadow-sm">
+                ${item.price.toFixed(2)}
+              </Badge>
+            )}
+            {item.rating != null && (
+              <Badge className="bg-amber-50 text-amber-700 border-amber-200 text-[10px] py-0 h-5 font-semibold shadow-sm flex items-center gap-0.5">
+                <Star className="w-2.5 h-2.5 fill-amber-400 text-amber-400" />{item.rating.toFixed(1)}
+              </Badge>
+            )}
             {item.asin && (
-              <a
-                href={`https://www.amazon.com/dp/${item.asin}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1 text-[10px] font-semibold text-slate-500 hover:text-violet-600 transition-colors whitespace-nowrap ml-auto"
-              >
+              <a href={`https://www.amazon.com/dp/${item.asin}`} target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-1 text-[10px] font-semibold text-slate-500 hover:text-violet-600 transition-colors whitespace-nowrap ml-auto">
                 View on Amazon <ExternalLink className="w-3 h-3" />
               </a>
             )}
           </div>
-          <h3 className="text-sm font-semibold text-slate-900 leading-snug break-words">
-            {item.title}
-          </h3>
+          <h3 className="text-sm font-semibold text-slate-900 leading-snug break-words">{item.title}</h3>
         </div>
       </div>
 
       <CardContent className="p-4 space-y-4">
         {/* Keywords Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-          <KeywordSection
-            label="High Intent"
-            icon={<Zap className="w-3 h-3 text-amber-600 fill-amber-400" />}
-            accentColor="amber"
-            keywords={item.keywords.filter((k: any) => k.type === "High Intent")}
-            itemIndex={index}
-            sectionIdx={0}
-            onCopy={copy}
-            copiedId={copiedId}
-          />
-          <KeywordSection
-            label="Core Keywords"
-            icon={<Layers className="w-3 h-3 text-blue-600" />}
-            accentColor="blue"
-            keywords={item.keywords.filter((k: any) => k.type === "Core")}
-            itemIndex={index}
-            sectionIdx={1}
-            onCopy={copy}
-            copiedId={copiedId}
-          />
-          <KeywordSection
-            label="Long-Tail"
-            icon={<BarChart3 className="w-3 h-3 text-emerald-600" />}
-            accentColor="emerald"
-            keywords={item.keywords.filter((k: any) => k.type === "Long Tail")}
-            itemIndex={index}
-            sectionIdx={2}
-            onCopy={copy}
-            copiedId={copiedId}
-          />
+          <KeywordSection label="High Intent" icon={<Zap className="w-3 h-3 text-amber-600 fill-amber-400" />}
+            accentColor="amber" keywords={item.keywords.filter((k: any) => k.type === "High Intent")}
+            itemIndex={index} sectionIdx={0} onCopy={copy} copiedId={copiedId} />
+          <KeywordSection label="Core Keywords" icon={<Layers className="w-3 h-3 text-blue-600" />}
+            accentColor="blue" keywords={item.keywords.filter((k: any) => k.type === "Core")}
+            itemIndex={index} sectionIdx={1} onCopy={copy} copiedId={copiedId} />
+          <KeywordSection label="Long-Tail" icon={<BarChart3 className="w-3 h-3 text-emerald-600" />}
+            accentColor="emerald" keywords={item.keywords.filter((k: any) => k.type === "Long Tail")}
+            itemIndex={index} sectionIdx={2} onCopy={copy} copiedId={copiedId} />
         </div>
 
-        {/* Competitor Targets */}
-        <div className="bg-gradient-to-br from-rose-50 via-pink-50 to-fuchsia-50 border border-rose-100 rounded-lg p-3 space-y-2.5">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Target className="w-3.5 h-3.5 text-rose-600" />
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-800">
-                Competitor Targets
-              </span>
-              {item.competitor_asins.length > 0 && (
-                <span className="text-[10px] font-mono tabular-nums text-rose-600 font-bold">
-                  ({item.competitor_asins.length})
-                </span>
-              )}
-            </div>
-            {item.competitor_asins.length > 0 && (
-              <button
-                onClick={() => copy(item.competitor_asins.join("\n"), `targets-${index}`)}
-                className="text-[10px] text-slate-500 hover:text-rose-600 font-semibold flex items-center gap-1 transition-colors"
-              >
-                {copiedId === `targets-${index}` ? <Check className="w-2.5 h-2.5 text-emerald-600" /> : <Copy className="w-2.5 h-2.5" />}
-                Copy all
-              </button>
-            )}
+        {/* Competitor Targets — Two Buckets */}
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <Target className="w-3.5 h-3.5 text-rose-600" />
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-800">Competitor Targets</span>
+            <span className="text-[10px] text-slate-400 font-medium">(check to include in CSV export)</span>
           </div>
 
-          {item.competitor_asins.length > 0 ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
-              {item.competitor_asins.map((asin: string, idx: number) => (
-                <div key={asin} className="group flex items-center justify-between gap-2 bg-white border border-rose-100 rounded-md px-2.5 py-1.5 hover:border-rose-300 hover:shadow-sm transition-all">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-[9px] font-bold text-rose-500 tabular-nums">{idx + 1}</span>
-                    <span className="font-mono text-[11px] text-slate-800 tracking-wider truncate font-semibold">{asin}</span>
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0 opacity-60 group-hover:opacity-100 transition-opacity">
-                    <button
-                      onClick={() => copy(asin, `asin-${index}-${idx}`)}
-                      className="text-slate-400 hover:text-violet-600"
-                      data-testid={`btn-asin-${index}-${idx}`}
-                    >
-                      {copiedId === `asin-${index}-${idx}` ? <Check className="w-2.5 h-2.5 text-emerald-600" /> : <Copy className="w-2.5 h-2.5" />}
-                    </button>
-                    <a href={`https://www.amazon.com/dp/${asin}`} target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-blue-600">
-                      <ExternalLink className="w-2.5 h-2.5" />
-                    </a>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-[11px] text-slate-500 italic">No competitor ASINs found.</p>
-          )}
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+            {/* Higher Price */}
+            <TargetBucket
+              label="Higher Price"
+              icon={<TrendingUp className="w-3.5 h-3.5 text-orange-600" />}
+              headerClass="bg-gradient-to-r from-orange-50 to-amber-50 border-orange-100"
+              cardClass="border-orange-100 hover:border-orange-300"
+              badgeClass="bg-orange-100 text-orange-700"
+              targets={higherPrice}
+              userAsin={userAsin}
+              selectedTargets={selectedTargets}
+              onToggleTarget={onToggleTarget}
+              onCopy={copy}
+              copiedId={copiedId}
+              itemIndex={index}
+              bucketKey="hp"
+            />
+            {/* Lower Rating */}
+            <TargetBucket
+              label="Lower Rating"
+              icon={<Star className="w-3.5 h-3.5 text-rose-600" />}
+              headerClass="bg-gradient-to-r from-rose-50 to-pink-50 border-rose-100"
+              cardClass="border-rose-100 hover:border-rose-300"
+              badgeClass="bg-rose-100 text-rose-700"
+              targets={lowerRating}
+              userAsin={userAsin}
+              selectedTargets={selectedTargets}
+              onToggleTarget={onToggleTarget}
+              onCopy={copy}
+              copiedId={copiedId}
+              itemIndex={index}
+              bucketKey="lr"
+            />
+          </div>
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function TargetBucket({ label, icon, headerClass, cardClass, badgeClass, targets, userAsin, selectedTargets, onToggleTarget, onCopy, copiedId, itemIndex, bucketKey }: {
+  label: string;
+  icon: React.ReactNode;
+  headerClass: string;
+  cardClass: string;
+  badgeClass: string;
+  targets: CompetitorTarget[];
+  userAsin: string;
+  selectedTargets: Set<string>;
+  onToggleTarget: (key: string) => void;
+  onCopy: (val: string, id: string) => void;
+  copiedId: string | null;
+  itemIndex: number;
+  bucketKey: string;
+}) {
+  const allSelected = targets.length > 0 && targets.every(t => selectedTargets.has(`${userAsin}|${t.asin}|${t.category}`));
+
+  const toggleAll = () => {
+    targets.forEach(t => {
+      const key = `${userAsin}|${t.asin}|${t.category}`;
+      if (allSelected) {
+        if (selectedTargets.has(key)) onToggleTarget(key);
+      } else {
+        if (!selectedTargets.has(key)) onToggleTarget(key);
+      }
+    });
+  };
+
+  return (
+    <div className={cn("border rounded-xl overflow-hidden shadow-sm", headerClass.includes("orange") ? "border-orange-100" : "border-rose-100")}>
+      <div className={cn("flex items-center justify-between px-3 py-2 border-b", headerClass)}>
+        <div className="flex items-center gap-2">
+          {icon}
+          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-800">{label}</span>
+          <span className="text-[10px] font-mono tabular-nums font-bold text-slate-500">({targets.length})</span>
+        </div>
+        {targets.length > 0 && (
+          <button onClick={toggleAll} className="text-[10px] text-slate-500 hover:text-slate-800 font-semibold flex items-center gap-1 transition-colors">
+            {allSelected ? <CheckSquare className="w-3.5 h-3.5 text-violet-600" /> : <Square className="w-3.5 h-3.5" />}
+            {allSelected ? "Deselect all" : "Select all"}
+          </button>
+        )}
+      </div>
+
+      {targets.length > 0 ? (
+        <div className="divide-y divide-slate-100 bg-white">
+          {targets.map((t, idx) => {
+            const key = `${userAsin}|${t.asin}|${t.category}`;
+            const isSelected = selectedTargets.has(key);
+            const copyId = `target-${bucketKey}-${itemIndex}-${idx}`;
+            return (
+              <div key={`${t.asin}-${t.category}`}
+                className={cn("flex items-center gap-2.5 px-3 py-2 group transition-colors",
+                  isSelected ? "bg-white" : "bg-slate-50/50"
+                )}>
+                {/* Checkbox */}
+                <button onClick={() => onToggleTarget(key)} className="shrink-0 text-slate-400 hover:text-violet-600 transition-colors">
+                  {isSelected
+                    ? <CheckSquare className="w-4 h-4 text-violet-600" />
+                    : <Square className="w-4 h-4" />}
+                </button>
+                {/* Product image */}
+                <div className="shrink-0 w-9 h-9 rounded-md bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center">
+                  {t.image ? (
+                    <img src={t.image} alt={t.title} className="w-full h-full object-contain"
+                      onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
+                  ) : (
+                    <Search className="w-4 h-4 text-slate-300" />
+                  )}
+                </div>
+                {/* Info */}
+                <div className="flex-1 min-w-0 space-y-0.5">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="font-mono text-[11px] font-bold text-slate-800 tracking-wider">{t.asin}</span>
+                    {t.price != null && (
+                      <span className={cn("text-[10px] font-bold px-1.5 py-0 rounded-full", badgeClass)}>
+                        ${t.price.toFixed(2)}
+                      </span>
+                    )}
+                    {t.rating != null && (
+                      <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0 rounded-full flex items-center gap-0.5">
+                        <Star className="w-2.5 h-2.5 fill-amber-400 text-amber-400" />{t.rating.toFixed(1)}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-600 truncate leading-tight">{t.title}</p>
+                </div>
+                {/* Action buttons — slightly bigger */}
+                <div className="flex items-center gap-1.5 shrink-0 opacity-50 group-hover:opacity-100 transition-opacity">
+                  <button onClick={() => onCopy(t.asin, copyId)}
+                    className="w-6 h-6 flex items-center justify-center rounded hover:bg-violet-50 text-slate-400 hover:text-violet-600 transition-colors">
+                    {copiedId === copyId ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                  </button>
+                  <a href={`https://www.amazon.com/dp/${t.asin}`} target="_blank" rel="noopener noreferrer"
+                    className="w-6 h-6 flex items-center justify-center rounded hover:bg-blue-50 text-slate-400 hover:text-blue-600 transition-colors">
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="p-4 bg-white">
+          <p className="text-[11px] text-slate-400 italic text-center">No targets found for this category.</p>
+        </div>
+      )}
+    </div>
   );
 }
 
