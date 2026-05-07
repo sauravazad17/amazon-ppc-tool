@@ -372,13 +372,30 @@ export async function getProductInfoByAsin(
 ): Promise<ProductInfo | null> {
   const clean = asin.trim().toUpperCase();
   if (!isValidAsin(clean)) return null;
+
+  // Primary fetch: canonical product page
   const html = await fetchAmazon(`https://www.amazon.com/dp/${clean}`);
   const title = extractTitleFromProductHtml(html);
   if (!title) return null;
   const brand = extractBrandFromProductHtml(html);
   const image = extractImageFromProductHtml(html);
-  const price = extractPriceFromProductHtml(html);
-  const rating = extractRatingFromProductHtml(html);
+  let price = extractPriceFromProductHtml(html);
+  let rating = extractRatingFromProductHtml(html);
+
+  // Fallback for variant products: ?th=1&psc=1 forces the default variant
+  // into the buybox without requiring a colour/size selection, exposing the price.
+  if (price == null || rating == null) {
+    try {
+      const variantHtml = await fetchAmazon(
+        `https://www.amazon.com/dp/${clean}?th=1&psc=1`,
+      );
+      if (price == null) price = extractPriceFromProductHtml(variantHtml);
+      if (rating == null) rating = extractRatingFromProductHtml(variantHtml);
+    } catch {
+      // ignore — we'll return whatever we have
+    }
+  }
+
   return { title, brand, image, price, rating };
 }
 

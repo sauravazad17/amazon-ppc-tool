@@ -280,35 +280,32 @@ function buildTargetBuckets(
     const usedAsins = new Set<string>();
     const usedBrands = new Map<string, number>();
 
-    const fill = (pool: EnrichedHit[]) => {
+    const countInCategory = () => results.filter((r) => r.category === category).length;
+
+    const fill = (pool: EnrichedHit[], maxPerBrand: number) => {
       const sorted = [...pool]
         .filter((c) => !usedAsins.has(c.asin))
         .sort((a, b) => scoreHit(b) - scoreHit(a));
       for (const c of sorted) {
-        if (results.filter((r) => r.category === category).length >= 5) break;
+        if (countInCategory() >= 5) break;
         const brand = normalizeBrand(c.actualBrand ?? "") || `__${c.asin}`;
         const brandCount = usedBrands.get(brand) ?? 0;
-        if (brandCount >= 2) continue;
+        if (brandCount >= maxPerBrand) continue;
         results.push({ asin: c.asin, title: c.actualTitle, image: c.actualImage, price: c.actualPrice, rating: c.actualRating, category });
         usedAsins.add(c.asin);
         usedBrands.set(brand, brandCount + 1);
       }
     };
 
-    // Pass 1: strict filter (higher price or lower rating)
-    fill(orderedPool.filter(primaryFilter));
+    // Pass 1: strict criterion + brand diversity (max 2 per brand)
+    const strictPool = orderedPool.filter(primaryFilter);
+    fill(strictPool, 2);
 
-    // Pass 2: if still < 5, relax and use entire pool (any candidate with relevant data)
-    if (results.filter((r) => r.category === category).length < 5) {
-      const hasData = category === "higher_price"
-        ? (c: EnrichedHit) => c.actualPrice != null
-        : (c: EnrichedHit) => c.actualRating != null;
-      fill(orderedPool.filter(hasData));
-    }
-
-    // Pass 3: last resort — any candidate regardless of price/rating availability
-    if (results.filter((r) => r.category === category).length < 5) {
-      fill(orderedPool);
+    // Pass 2: same strict criterion, relax brand diversity to 3 per brand
+    // IMPORTANT: we never relax the price/rating criterion itself —
+    // lower-priced items must never appear in "higher_price", etc.
+    if (countInCategory() < 5) {
+      fill(strictPool, 3);
     }
   };
 
