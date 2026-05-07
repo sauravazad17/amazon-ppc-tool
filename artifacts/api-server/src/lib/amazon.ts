@@ -244,8 +244,8 @@ function extractPriceFromProductHtml(html: string): number | null {
   let v = tryParse(m?.[1]);
   if (v) return v;
 
-  // 2. priceAmount scalar
-  m = html.match(/"priceAmount"\s*:\s*([\d.]+)/);
+  // 2. priceAmount scalar (with or without quotes)
+  m = html.match(/"priceAmount"\s*:\s*"?([\d.]+)"?/);
   v = tryParse(m?.[1]);
   if (v) return v;
 
@@ -254,29 +254,50 @@ function extractPriceFromProductHtml(html: string): number | null {
   v = tryParse(m?.[1]);
   if (v) return v;
 
-  // 4. buyingPrice / formattedPrice
-  m = html.match(/"(?:buyingPrice|formattedPrice)"\s*:\s*"\$([\d,]+(?:\.\d{1,2})?)"/);
+  // 4. buyingPrice / formattedPrice (with or without $ prefix)
+  m = html.match(/"(?:buyingPrice|formattedPrice)"\s*:\s*"\$?([\d,]+(?:\.\d{1,2})?)"/);
   v = tryParse(m?.[1]);
+  if (v) return v;
+
+  // 4b. price as bare number in JSON object: "price":"29.99" or "price":29.99
+  m = html.match(/"price"\s*:\s*"?([\d]+\.[\d]{2})"?/);
+  v = tryParse(m?.[1]);
+  if (v) return v;
+
+  // 4c. lowPrice / minPrice (range products — take the lowest variant price)
+  m = html.match(/"(?:low|min)Price"\s*:\s*"?([\d.]+)"?/i);
+  v = tryParse(m?.[1]);
+  if (v) return v;
+
+  // 4d. "value": "29.99" inside a price-related object (common React state structure)
+  //     Look for it within 200 chars of "priceToPay", "buyingPrice", "displayPrice"
+  const priceCtx = html.match(/(?:"priceToPay"|"buyingPrice"|"displayPrice"|"priceAmount")[\s\S]{0,200}?"value"\s*:\s*"([\d.]+)"/);
+  v = tryParse(priceCtx?.[1]);
   if (v) return v;
 
   // --- Tier 2: HTML anchored to specific buybox IDs ---
 
   // 5. data-a-color="price" marks the ACTUAL selling price (not the grey strikethrough "was" price)
-  //    Look for an a-offscreen dollar amount inside that colour block
   const colorPriceBlock = html.match(/data-a-color="price"[^>]*>[\s\S]{0,400}?class="a-offscreen"\s*>\s*\$([\d,]+(?:\.\d{1,2})?)\s*</i);
   v = tryParse(colorPriceBlock?.[1]);
   if (v) return v;
 
-  // 6. corePriceDisplay_desktop_feature_div → first a-offscreen inside it (tight 1500-char window)
-  const corePriceSection = html.match(/id="corePriceDisplay_desktop_feature_div"([\s\S]{1,1500})/i);
+  // 6. corePriceDisplay_desktop_feature_div → first a-offscreen inside it
+  const corePriceSection = html.match(/id="corePriceDisplay_desktop_feature_div"([\s\S]{1,2000})/i);
   if (corePriceSection?.[1]) {
     const mo = corePriceSection[1].match(/class="a-offscreen"\s*>\s*\$([\d,]+(?:\.\d{1,2})?)\s*</i);
     v = tryParse(mo?.[1]);
     if (v) return v;
+    // also try a-price-whole + a-price-fraction inside that section
+    const wf = corePriceSection[1].match(/class="a-price-whole">([\d,]+)<[\s\S]{0,80}?class="a-price-fraction">(\d+)</i);
+    if (wf?.[1] && wf?.[2]) {
+      v = tryParse(`${wf[1].replace(/,/g, "")}.${wf[2]}`);
+      if (v) return v;
+    }
   }
 
   // 7. apex_offerDisplay_desktop → first a-offscreen
-  const apexSection = html.match(/id="apex_offerDisplay[^"]*"([\s\S]{1,1500})/i);
+  const apexSection = html.match(/id="apex_offerDisplay[^"]*"([\s\S]{1,2000})/i);
   if (apexSection?.[1]) {
     const mo = apexSection[1].match(/class="a-offscreen"\s*>\s*\$([\d,]+(?:\.\d{1,2})?)\s*</i);
     v = tryParse(mo?.[1]);
@@ -288,16 +309,21 @@ function extractPriceFromProductHtml(html: string): number | null {
   v = tryParse(m?.[1]);
   if (v) return v;
 
+  // 8b. a-price-whole + a-price-fraction anywhere on page (buybox-style layout)
+  //     Restrict to the first occurrence — that's most likely the buybox price
+  const wfGlobal = html.match(/class="a-price-whole">([\d,]+)<\/span>[\s\S]{0,80}?class="a-price-fraction">(\d+)<\/span>/i);
+  if (wfGlobal?.[1] && wfGlobal?.[2]) {
+    v = tryParse(`${wfGlobal[1].replace(/,/g, "")}.${wfGlobal[2]}`);
+    if (v) return v;
+  }
+
   // --- Tier 3: statistical fallback on all a-offscreen amounts ---
-  // Collect every dollar value shown on the page; take the median.
-  // Median avoids being skewed by very high "list" prices or very low coupon amounts.
   const allOffscreen = [...html.matchAll(/class="a-offscreen"\s*>\s*\$([\d,]+(?:\.\d{1,2})?)\s*</gi)];
   const candidates = allOffscreen
     .map(match => parseFloat((match[1] ?? "").replace(/,/g, "")))
     .filter(n => !isNaN(n) && n >= 1 && n < 2000);
   if (candidates.length > 0) {
     candidates.sort((a, b) => a - b);
-    // Prefer values that appear more than once (actual price vs. ads/was-prices)
     const freq = new Map<number, number>();
     for (const n of candidates) freq.set(n, (freq.get(n) ?? 0) + 1);
     const bestCount = Math.max(...freq.values());
@@ -445,7 +471,7 @@ function parseSearchHits(html: string): SearchHit[] {
     if (!asin || seen.has(asin)) continue;
     seen.add(asin);
     const start = m.index;
-    const end = Math.min(html.length, start + 8000);
+    const end = Math.min(html.length, start + 12000);
     const win = html.slice(start, end);
 
     // --- Title ---

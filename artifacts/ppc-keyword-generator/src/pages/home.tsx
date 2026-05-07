@@ -628,16 +628,6 @@ function ResultCard({ item, index, noBorder, selectedTargets, onToggleTarget }: 
           </div>
           {/* Row 2: Title */}
           <p className="text-sm font-semibold text-slate-800 leading-snug line-clamp-2">{item.title}</p>
-          {/* Row 3: analysis tags */}
-          {item.analysis?.attributes?.length > 0 && (
-            <div className="flex flex-wrap gap-1 mt-2">
-              {item.analysis.attributes.slice(0, 5).map((attr: string, i: number) => (
-                <span key={i} className="text-[9px] font-medium text-slate-500 bg-slate-100 rounded px-1.5 py-0.5 uppercase tracking-wide">
-                  {attr}
-                </span>
-              ))}
-            </div>
-          )}
         </div>
       </div>
 
@@ -645,7 +635,7 @@ function ResultCard({ item, index, noBorder, selectedTargets, onToggleTarget }: 
       <div className="p-5">
         <div className="flex items-center gap-2 mb-3">
           <Sparkles className="w-3.5 h-3.5 text-violet-500" />
-          <span className="text-[11px] font-bold uppercase tracking-widest text-slate-600">AI-Generated Keywords</span>
+          <span className="text-[11px] font-bold uppercase tracking-widest text-slate-600">Keywords</span>
           <span className="text-[10px] text-slate-400">· click any keyword to copy</span>
         </div>
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-3">
