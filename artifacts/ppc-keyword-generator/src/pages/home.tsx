@@ -265,11 +265,16 @@ export default function Home() {
           </div>
         </header>
 
-        <main className="max-w-screen-2xl mx-auto w-full flex-1 grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-0">
+        <main className="max-w-screen-2xl mx-auto w-full flex-1 grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-0">
           {/* Left Sidebar */}
-          <aside className="lg:h-[calc(100vh-4rem)] lg:sticky lg:top-16 border-r border-white/50 bg-white/60 backdrop-blur-xl overflow-y-auto px-5 py-6">
+          <aside className="lg:h-[calc(100vh-4rem)] lg:sticky lg:top-16 border-r border-white/50 bg-white/80 backdrop-blur-xl overflow-y-auto px-5 py-6 shadow-[8px_0_40px_rgba(91,33,182,0.06)]">
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+                <div className="space-y-1">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.28em] text-violet-500">Input panel</p>
+                  <h2 className="text-lg font-semibold text-slate-900">Enter ASINs</h2>
+                  <p className="text-xs text-slate-500">Fixed on the left for fast research.</p>
+                </div>
                 <FormField
                   control={form.control}
                   name="asinsRaw"
@@ -286,7 +291,7 @@ export default function Home() {
                       <FormControl>
                         <Textarea
                           placeholder="B07FZ8S74R, B0BDHWDR12..."
-                          className="bg-white border-slate-200 focus-visible:ring-violet-500 focus-visible:border-violet-300 min-h-[120px] font-mono text-xs resize-none shadow-sm text-slate-900 placeholder:text-slate-400"
+                          className="bg-white border-slate-200 focus-visible:ring-violet-500 focus-visible:border-violet-300 min-h-[140px] font-mono text-xs resize-none shadow-sm text-slate-900 placeholder:text-slate-400"
                           onPaste={handlePaste}
                           {...field}
                         />
@@ -321,7 +326,7 @@ export default function Home() {
                             <FormControl>
                               <Textarea
                                 placeholder="Enter full product title..."
-                                className="bg-white border-slate-200 focus-visible:ring-violet-500 focus-visible:border-violet-300 min-h-[80px] text-xs shadow-sm text-slate-900 placeholder:text-slate-400"
+                                className="bg-white border-slate-200 focus-visible:ring-violet-500 focus-visible:border-violet-300 min-h-[96px] text-xs shadow-sm text-slate-900 placeholder:text-slate-400"
                                 {...field}
                               />
                             </FormControl>
@@ -336,7 +341,7 @@ export default function Home() {
                 <Button
                   type="submit"
                   disabled={mutation.isPending}
-                  className="w-full h-auto py-2.5 whitespace-normal bg-gradient-to-r from-violet-600 via-blue-600 to-cyan-600 hover:from-violet-700 hover:via-blue-700 hover:to-cyan-700 text-white font-bold transition-all shadow-lg shadow-violet-500/30 hover:shadow-xl hover:shadow-violet-500/40 hover:-translate-y-0.5 border-0"
+                  className="w-full h-auto py-3 whitespace-normal bg-gradient-to-r from-violet-600 via-blue-600 to-cyan-600 hover:from-violet-700 hover:via-blue-700 hover:to-cyan-700 text-white font-bold transition-all shadow-lg shadow-violet-500/30 hover:shadow-xl hover:shadow-violet-500/40 hover:-translate-y-0.5 border-0 rounded-xl"
                   data-testid="btn-generate"
                 >
                   {mutation.isPending ? (
@@ -356,7 +361,7 @@ export default function Home() {
           </aside>
 
           {/* Right Content Area */}
-          <section className="min-w-0">
+          <section className="min-w-0 bg-gradient-to-br from-white/30 via-white/10 to-transparent">
             <AnimatePresence mode="wait">
               {!mutation.data && !mutation.isPending && (
                 <motion.div
@@ -378,7 +383,7 @@ export default function Home() {
                   </motion.div>
                   <h2 className="text-2xl font-bold text-slate-900 mb-1">Ready to Analyze</h2>
                   <p className="text-sm text-slate-500 mb-6">Enter ASINs to start generating</p>
-                  <div className="space-y-3 max-w-sm text-left">
+                  <div className="space-y-3 max-w-md text-left">
                     {[
                       { color: "from-violet-500 to-fuchsia-500", text: <><span className="text-slate-900 font-semibold">Distills</span> long Amazon titles into the real product type.</> },
                       { color: "from-blue-500 to-cyan-500", text: <><span className="text-slate-900 font-semibold">30 conversion-grade</span> keywords per ASIN.</> },

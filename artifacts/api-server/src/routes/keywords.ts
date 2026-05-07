@@ -267,19 +267,34 @@ function buildTargetBuckets(
   userRating: number | null,
 ): CompetitorTarget[] {
   const results: CompetitorTarget[] = [];
+  const usedAsins = new Set<string>();
+  const usedBrands = new Map<string, number>();
 
-  const pickFromPool = (
-    pool: EnrichedHit[],
-    category: "higher_price" | "lower_rating",
-  ): void => {
-    const brandCount = new Map<string, number>();
-    let count = 0;
-    for (const c of pool) {
-      if (count >= 5) break;
-      const key = normalizeBrand(c.actualBrand ?? "") || `__${count}`;
-      const bCount = brandCount.get(key) ?? 0;
-      if (bCount >= 2) continue;
-      brandCount.set(key, bCount + 1);
+  const scoreHit = (c: EnrichedHit, category: "higher_price" | "lower_rating") => {
+    const brand = normalizeBrand(c.actualBrand ?? "");
+    const brandPenalty = usedBrands.get(brand) ?? 0;
+    let score = 0;
+    if (brand) score += 20;
+    if (brandPenalty > 0) score -= brandPenalty * 30;
+    if (category === "higher_price") {
+      if (userPrice != null && c.actualPrice != null) score += Math.max(0, 80 - Math.abs(c.actualPrice - userPrice) * 6);
+      else if (c.actualPrice != null) score += 40;
+    } else {
+      if (userRating != null && c.actualRating != null) score += Math.max(0, 80 - Math.abs(c.actualRating - userRating) * 20);
+      else if (c.actualRating != null) score += 40;
+    }
+    return score;
+  };
+
+  const pickCategory = (pool: EnrichedHit[], category: "higher_price" | "lower_rating") => {
+    const sorted = [...pool]
+      .filter((c) => !usedAsins.has(c.asin))
+      .sort((a, b) => scoreHit(b, category) - scoreHit(a, category));
+    for (const c of sorted) {
+      if (results.filter((r) => r.category === category).length >= 5) break;
+      const brand = normalizeBrand(c.actualBrand ?? "") || `__${c.asin}`;
+      const brandCount = usedBrands.get(brand) ?? 0;
+      if (brandCount >= 2) continue;
       results.push({
         asin: c.asin,
         title: c.actualTitle,
@@ -288,23 +303,63 @@ function buildTargetBuckets(
         rating: c.actualRating,
         category,
       });
-      count++;
+      usedAsins.add(c.asin);
+      usedBrands.set(brand, brandCount + 1);
     }
   };
 
-  // Higher price: STRICTLY competitors priced above the user's product.
-  // If userPrice is unknown, include candidates whose price is known (any price) for comparison value.
   const hpPool = userPrice != null
-    ? orderedPool.filter(c => c.actualPrice != null && c.actualPrice > userPrice)
-    : orderedPool.filter(c => c.actualPrice != null);
-  pickFromPool(hpPool, "higher_price");
-
-  // Lower rating: STRICTLY competitors rated below the user's product.
-  // If userRating is unknown, include candidates whose rating is known for comparison value.
+    ? orderedPool.filter((c) => c.actualPrice != null && c.actualPrice > userPrice)
+    : orderedPool.filter((c) => c.actualPrice != null);
   const lrPool = userRating != null
-    ? orderedPool.filter(c => c.actualRating != null && c.actualRating < userRating)
-    : orderedPool.filter(c => c.actualRating != null);
-  pickFromPool(lrPool, "lower_rating");
+    ? orderedPool.filter((c) => c.actualRating != null && c.actualRating < userRating)
+    : orderedPool.filter((c) => c.actualRating != null);
+
+  pickCategory(hpPool, "higher_price");
+  pickCategory(lrPool, "lower_rating");
+
+  const counts = {
+    higher_price: results.filter((r) => r.category === "higher_price").length,
+    lower_rating: results.filter((r) => r.category === "lower_rating").length,
+  };
+  if (counts.higher_price < 5) {
+    const fallback = orderedPool.filter((c) => !usedAsins.has(c.asin) && c.actualPrice != null);
+    for (const c of fallback) {
+      if (results.filter((r) => r.category === "higher_price").length >= 5) break;
+      const brand = normalizeBrand(c.actualBrand ?? "") || `__${c.asin}`;
+      const brandCount = usedBrands.get(brand) ?? 0;
+      if (brandCount >= 2) continue;
+      results.push({
+        asin: c.asin,
+        title: c.actualTitle,
+        image: c.actualImage,
+        price: c.actualPrice,
+        rating: c.actualRating,
+        category: "higher_price",
+      });
+      usedAsins.add(c.asin);
+      usedBrands.set(brand, brandCount + 1);
+    }
+  }
+  if (counts.lower_rating < 5) {
+    const fallback = orderedPool.filter((c) => !usedAsins.has(c.asin) && c.actualRating != null);
+    for (const c of fallback) {
+      if (results.filter((r) => r.category === "lower_rating").length >= 5) break;
+      const brand = normalizeBrand(c.actualBrand ?? "") || `__${c.asin}`;
+      const brandCount = usedBrands.get(brand) ?? 0;
+      if (brandCount >= 2) continue;
+      results.push({
+        asin: c.asin,
+        title: c.actualTitle,
+        image: c.actualImage,
+        price: c.actualPrice,
+        rating: c.actualRating,
+        category: "lower_rating",
+      });
+      usedAsins.add(c.asin);
+      usedBrands.set(brand, brandCount + 1);
+    }
+  }
 
   return results;
 }
@@ -345,9 +400,7 @@ async function pickAndBuildTargets(
     return ordered;
   };
 
-  if (safeBrandPool.length <= 3) {
-    return buildTargetBuckets(heuristicOrdered(), userPrice, userRating);
-  }
+  const queryHints = [coreProduct, ...attributes].join(" ").trim();
 
   try {
     const completion = await openai.chat.completions.create({
@@ -362,7 +415,12 @@ async function pickAndBuildTargets(
             userBrand,
             coreProduct,
             attributes,
-            candidates: safeBrandPool,
+            candidates: safeBrandPool.filter((c) => {
+              const text = `${c.actualTitle} ${c.actualBrand ?? ""}`.toLowerCase();
+              return queryHints
+                ? queryHints.toLowerCase().split(/\s+/).some((term) => term.length > 2 && text.includes(term))
+                : true;
+            }),
           }),
         },
       ],
@@ -480,8 +538,6 @@ async function generateForOne(
     }
   }
 
-  // Also search by price-descending to find higher-priced competitors for the HP bucket.
-  // Put these FIRST in the merged list so they are prioritised during enrichment.
   if (queryCandidates[0]) {
     try {
       const hpHits = await searchCompetitorHits(queryCandidates[0], {
@@ -492,10 +548,8 @@ async function generateForOne(
       });
       const regularAsins = new Set(candidates.map((c) => c.asin));
       const uniqueHpHits = hpHits.filter((h) => !regularAsins.has(h.asin));
-      // Interleave: price-desc unique first (for HP), then regular candidates (for LR)
       candidates = [...uniqueHpHits, ...candidates];
     } catch {
-      // ignore — regular candidates still used
     }
   }
 
