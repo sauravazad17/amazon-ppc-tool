@@ -256,10 +256,11 @@ async function enrichCompetitorData(
 
 /**
  * From the LLM-approved (or heuristic) pool, build two target buckets:
- * - higher_price: up to 5 competitors with price > userPrice (or all if unknown)
- * - lower_rating: up to 5 competitors with rating < userRating (or all if unknown)
- * Each bucket enforces brand diversity (max 2 per brand).
- * The same ASIN may appear in both buckets.
+ * - higher_price: up to 5 competitors priced above userPrice (or best available)
+ * - lower_rating: up to 5 competitors rated below userRating (or best available)
+ * Each bucket picks from the FULL pool independently with its own usedAsins set,
+ * so ASINs never repeat within a bucket but each bucket tries its best to fill to 5.
+ * Brand diversity: max 2 ASINs per brand per bucket.
  */
 function buildTargetBuckets(
   orderedPool: EnrichedHit[],
@@ -267,99 +268,83 @@ function buildTargetBuckets(
   userRating: number | null,
 ): CompetitorTarget[] {
   const results: CompetitorTarget[] = [];
-  const usedAsins = new Set<string>();
-  const usedBrands = new Map<string, number>();
 
-  const scoreHit = (c: EnrichedHit, category: "higher_price" | "lower_rating") => {
-    const brand = normalizeBrand(c.actualBrand ?? "");
-    const brandPenalty = usedBrands.get(brand) ?? 0;
-    let score = 0;
-    if (brand) score += 20;
-    if (brandPenalty > 0) score -= brandPenalty * 30;
-    if (category === "higher_price") {
-      if (userPrice != null && c.actualPrice != null) score += Math.max(0, 80 - Math.abs(c.actualPrice - userPrice) * 6);
-      else if (c.actualPrice != null) score += 40;
-    } else {
-      if (userRating != null && c.actualRating != null) score += Math.max(0, 80 - Math.abs(c.actualRating - userRating) * 20);
-      else if (c.actualRating != null) score += 40;
+  const pickBucket = (
+    category: "higher_price" | "lower_rating",
+    primaryFilter: (c: EnrichedHit) => boolean,
+    scoreHit: (c: EnrichedHit) => number,
+  ) => {
+    // Each bucket gets its own independent tracking
+    const usedAsins = new Set<string>();
+    const usedBrands = new Map<string, number>();
+
+    const fill = (pool: EnrichedHit[]) => {
+      const sorted = [...pool]
+        .filter((c) => !usedAsins.has(c.asin))
+        .sort((a, b) => scoreHit(b) - scoreHit(a));
+      for (const c of sorted) {
+        if (results.filter((r) => r.category === category).length >= 5) break;
+        const brand = normalizeBrand(c.actualBrand ?? "") || `__${c.asin}`;
+        const brandCount = usedBrands.get(brand) ?? 0;
+        if (brandCount >= 2) continue;
+        results.push({ asin: c.asin, title: c.actualTitle, image: c.actualImage, price: c.actualPrice, rating: c.actualRating, category });
+        usedAsins.add(c.asin);
+        usedBrands.set(brand, brandCount + 1);
+      }
+    };
+
+    // Pass 1: strict filter (higher price or lower rating)
+    fill(orderedPool.filter(primaryFilter));
+
+    // Pass 2: if still < 5, relax and use entire pool (any candidate with relevant data)
+    if (results.filter((r) => r.category === category).length < 5) {
+      const hasData = category === "higher_price"
+        ? (c: EnrichedHit) => c.actualPrice != null
+        : (c: EnrichedHit) => c.actualRating != null;
+      fill(orderedPool.filter(hasData));
     }
-    return score;
+
+    // Pass 3: last resort — any candidate regardless of price/rating availability
+    if (results.filter((r) => r.category === category).length < 5) {
+      fill(orderedPool);
+    }
   };
 
-  const pickCategory = (pool: EnrichedHit[], category: "higher_price" | "lower_rating") => {
-    const sorted = [...pool]
-      .filter((c) => !usedAsins.has(c.asin))
-      .sort((a, b) => scoreHit(b, category) - scoreHit(a, category));
-    for (const c of sorted) {
-      if (results.filter((r) => r.category === category).length >= 5) break;
-      const brand = normalizeBrand(c.actualBrand ?? "") || `__${c.asin}`;
-      const brandCount = usedBrands.get(brand) ?? 0;
-      if (brandCount >= 2) continue;
-      results.push({
-        asin: c.asin,
-        title: c.actualTitle,
-        image: c.actualImage,
-        price: c.actualPrice,
-        rating: c.actualRating,
-        category,
-      });
-      usedAsins.add(c.asin);
-      usedBrands.set(brand, brandCount + 1);
-    }
-  };
+  // Higher price bucket
+  pickBucket(
+    "higher_price",
+    (c) => c.actualPrice != null && (userPrice == null || c.actualPrice > userPrice),
+    (c) => {
+      let score = 0;
+      if (c.actualBrand) score += 10;
+      if (c.actualPrice != null && userPrice != null) {
+        // Prefer competitors slightly above user price (not 10x more expensive)
+        const diff = c.actualPrice - userPrice;
+        if (diff > 0) score += Math.max(0, 60 - diff * 3);
+      } else if (c.actualPrice != null) {
+        score += 30;
+      }
+      return score;
+    },
+  );
 
-  const hpPool = userPrice != null
-    ? orderedPool.filter((c) => c.actualPrice != null && c.actualPrice > userPrice)
-    : orderedPool.filter((c) => c.actualPrice != null);
-  const lrPool = userRating != null
-    ? orderedPool.filter((c) => c.actualRating != null && c.actualRating < userRating)
-    : orderedPool.filter((c) => c.actualRating != null);
-
-  pickCategory(hpPool, "higher_price");
-  pickCategory(lrPool, "lower_rating");
-
-  const counts = {
-    higher_price: results.filter((r) => r.category === "higher_price").length,
-    lower_rating: results.filter((r) => r.category === "lower_rating").length,
-  };
-  if (counts.higher_price < 5) {
-    const fallback = orderedPool.filter((c) => !usedAsins.has(c.asin) && c.actualPrice != null);
-    for (const c of fallback) {
-      if (results.filter((r) => r.category === "higher_price").length >= 5) break;
-      const brand = normalizeBrand(c.actualBrand ?? "") || `__${c.asin}`;
-      const brandCount = usedBrands.get(brand) ?? 0;
-      if (brandCount >= 2) continue;
-      results.push({
-        asin: c.asin,
-        title: c.actualTitle,
-        image: c.actualImage,
-        price: c.actualPrice,
-        rating: c.actualRating,
-        category: "higher_price",
-      });
-      usedAsins.add(c.asin);
-      usedBrands.set(brand, brandCount + 1);
-    }
-  }
-  if (counts.lower_rating < 5) {
-    const fallback = orderedPool.filter((c) => !usedAsins.has(c.asin) && c.actualRating != null);
-    for (const c of fallback) {
-      if (results.filter((r) => r.category === "lower_rating").length >= 5) break;
-      const brand = normalizeBrand(c.actualBrand ?? "") || `__${c.asin}`;
-      const brandCount = usedBrands.get(brand) ?? 0;
-      if (brandCount >= 2) continue;
-      results.push({
-        asin: c.asin,
-        title: c.actualTitle,
-        image: c.actualImage,
-        price: c.actualPrice,
-        rating: c.actualRating,
-        category: "lower_rating",
-      });
-      usedAsins.add(c.asin);
-      usedBrands.set(brand, brandCount + 1);
-    }
-  }
+  // Lower rating bucket
+  pickBucket(
+    "lower_rating",
+    (c) => c.actualRating != null && (userRating == null || c.actualRating < userRating),
+    (c) => {
+      let score = 0;
+      if (c.actualBrand) score += 10;
+      if (c.actualRating != null && userRating != null) {
+        // Prefer competitors with rating just below user (close comparison)
+        const diff = userRating - c.actualRating;
+        if (diff > 0) score += Math.max(0, 60 - diff * 15);
+      } else if (c.actualRating != null) {
+        score += 30;
+      }
+      return score;
+    },
+  );
 
   return results;
 }
@@ -415,12 +400,8 @@ async function pickAndBuildTargets(
             userBrand,
             coreProduct,
             attributes,
-            candidates: safeBrandPool.filter((c) => {
-              const text = `${c.actualTitle} ${c.actualBrand ?? ""}`.toLowerCase();
-              return queryHints
-                ? queryHints.toLowerCase().split(/\s+/).some((term) => term.length > 2 && text.includes(term))
-                : true;
-            }),
+            // Send all safe candidates to the LLM — let it judge relevance
+            candidates: safeBrandPool,
           }),
         },
       ],
@@ -504,9 +485,8 @@ async function generateForOne(
     return true;
   });
 
-  // Build a list of search queries to try in order, from most-specific to most-generic.
-  // If a query yields no hits (e.g. Amazon temporarily blocks or returns nothing), we fall
-  // back to the next one rather than giving up.
+  // Build search query list: most-specific → most-generic.
+  // We run ALL queries and merge unique hits for the biggest possible candidate pool.
   const queryCandidates = Array.from(
     new Set(
       [
@@ -516,28 +496,42 @@ async function generateForOne(
           ? `${analysis.attributes[0]} ${analysis.coreProduct}`
           : null,
         title?.split(/\s*[-–—,(|]\s*/)[0]?.trim(),
-      ].filter((q): q is string => !!q && q.length > 0),
+        // Fallback: first 3 words of title (broad)
+        title?.split(/\s+/).slice(0, 3).join(" ").trim(),
+      ].filter((q): q is string => !!q && q.length >= 3),
     ),
   );
 
   let competitorTargets: CompetitorTarget[] = [];
-  let candidates: SearchHit[] = [];
-  for (const q of queryCandidates) {
-    try {
-      const hits = await searchCompetitorHits(q, {
-        limit: 30,
-        excludeAsin: asin,
-        excludeBrand: userBrand,
-      });
-      if (hits.length > 0) {
-        candidates = hits;
-        break;
-      }
-    } catch {
-      // try next query
-    }
-  }
 
+  // Collect from ALL queries (default + price-desc) and merge unique hits
+  const seenAsins = new Set<string>();
+  const allHits: SearchHit[] = [];
+
+  const addHits = (hits: SearchHit[]) => {
+    for (const h of hits) {
+      if (!seenAsins.has(h.asin)) {
+        seenAsins.add(h.asin);
+        allHits.push(h);
+      }
+    }
+  };
+
+  // Run default-sort searches across all query candidates
+  await Promise.allSettled(
+    queryCandidates.map(async (q) => {
+      try {
+        const hits = await searchCompetitorHits(q, {
+          limit: 25,
+          excludeAsin: asin,
+          excludeBrand: userBrand,
+        });
+        addHits(hits);
+      } catch { /* ignore */ }
+    }),
+  );
+
+  // Also run price-desc on best query for higher-price candidates
   if (queryCandidates[0]) {
     try {
       const hpHits = await searchCompetitorHits(queryCandidates[0], {
@@ -546,17 +540,14 @@ async function generateForOne(
         excludeBrand: userBrand,
         sortBy: "price-desc",
       });
-      const regularAsins = new Set(candidates.map((c) => c.asin));
-      const uniqueHpHits = hpHits.filter((h) => !regularAsins.has(h.asin));
-      candidates = [...uniqueHpHits, ...candidates];
-    } catch {
-    }
+      addHits(hpHits);
+    } catch { /* ignore */ }
   }
 
-  if (candidates.length > 0) {
+  if (allHits.length > 0) {
     try {
-      // Fetch full data (brand, title, image, price, rating) for each candidate in parallel.
-      const enriched = await enrichCompetitorData(candidates, 24);
+      // Fetch full product data for up to 30 candidates
+      const enriched = await enrichCompetitorData(allHits, 30);
       competitorTargets = await pickAndBuildTargets(
         enriched,
         title,

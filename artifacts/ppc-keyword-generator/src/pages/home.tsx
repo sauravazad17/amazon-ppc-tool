@@ -146,7 +146,10 @@ export default function Home() {
     const matches = text.toUpperCase().match(ASIN_REGEX);
     if (matches && matches.length > 0) {
       e.preventDefault();
-      form.setValue("asinsRaw", Array.from(new Set(matches)).join("\n"));
+      const existing = form.getValues("asinsRaw");
+      const existingAsins = existing.toUpperCase().match(ASIN_REGEX) || [];
+      const combined = Array.from(new Set([...existingAsins, ...matches]));
+      form.setValue("asinsRaw", combined.join("\n"));
     }
   };
 

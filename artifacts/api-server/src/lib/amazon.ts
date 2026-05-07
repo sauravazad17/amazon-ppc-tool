@@ -230,30 +230,66 @@ function extractImageFromProductHtml(html: string): string | null {
 }
 
 function extractPriceFromProductHtml(html: string): number | null {
-  // JSON "priceAmount": 24.99
-  const priceAmountJson = html.match(/"priceAmount"\s*:\s*([\d.]+)/);
-  if (priceAmountJson?.[1]) {
-    const v = parseFloat(priceAmountJson[1]);
-    if (!isNaN(v) && v > 0) return v;
+  const tryParse = (s: string | undefined): number | null => {
+    if (!s) return null;
+    const v = parseFloat(s.replace(/,/g, ""));
+    return !isNaN(v) && v > 0 ? v : null;
+  };
+
+  // 1. JSON "priceAmount": 24.99
+  let m = html.match(/"priceAmount"\s*:\s*([\d.]+)/);
+  let v = tryParse(m?.[1]);
+  if (v) return v;
+
+  // 2. priceToPay amount (newer React-based pages)
+  m = html.match(/"priceToPay"\s*:\s*\{[^}]*?"amount"\s*:\s*"([\d.]+)"/);
+  v = tryParse(m?.[1]);
+  if (v) return v;
+
+  // 3. displayPrice string "$34.99"
+  m = html.match(/"displayPrice"\s*:\s*"\$([\d,]+(?:\.\d{1,2})?)"/);
+  v = tryParse(m?.[1]);
+  if (v) return v;
+
+  // 4. a-offscreen span inside a-price (most common legacy layout)
+  m = html.match(/class="a-offscreen"\s*>\s*\$([\d,]+(?:\.\d{1,2})?)\s*</i);
+  v = tryParse(m?.[1]);
+  if (v) return v;
+
+  // 5. corePriceDisplay / apex_offerDisplay price whole+fraction
+  const wholeFrac = html.match(/id="corePriceDisplay[^"]*"[\s\S]{0,3000}?class="a-price-whole"\s*>([\d,]+)[\s\S]{0,200}?class="a-price-fraction"\s*>(\d+)/i);
+  if (wholeFrac?.[1] && wholeFrac?.[2]) {
+    v = tryParse(`${wholeFrac[1]}.${wholeFrac[2]}`);
+    if (v) return v;
   }
-  // a-offscreen span inside a-price (most common)
-  const offscreen = html.match(/class="a-offscreen"\s*>\s*\$([\d,]+(?:\.\d{1,2})?)\s*</i);
-  if (offscreen?.[1]) {
-    const v = parseFloat(offscreen[1].replace(/,/g, ""));
-    if (!isNaN(v) && v > 0) return v;
+
+  // 6. priceblock_ourprice / priceblock_dealprice (legacy)
+  m = html.match(/id="priceblock_(?:ourprice|dealprice)"[^>]*>\s*\$([\d,]+(?:\.\d{1,2})?)/i);
+  v = tryParse(m?.[1]);
+  if (v) return v;
+
+  // 7. "price":{"value": 24.99}
+  m = html.match(/"price"\s*:\s*\{\s*"value"\s*:\s*([\d.]+)/);
+  v = tryParse(m?.[1]);
+  if (v) return v;
+
+  // 8. formattedPrice / buyingPrice
+  m = html.match(/"(?:formattedPrice|buyingPrice|purchasePrice)"\s*:\s*"\$([\d,]+(?:\.\d{1,2})?)"/);
+  v = tryParse(m?.[1]);
+  if (v) return v;
+
+  // 9. Any a-price block: <span class="a-price-whole">34<...><span class="a-price-fraction">99
+  const anyPrice = html.match(/class="a-price-whole"\s*>([\d,]+)<[\s\S]{0,200}?class="a-price-fraction"\s*>(\d+)/i);
+  if (anyPrice?.[1] && anyPrice?.[2]) {
+    v = tryParse(`${anyPrice[1]}.${anyPrice[2]}`);
+    if (v) return v;
   }
-  // priceblock_ourprice / priceblock_dealprice
-  const priceBlock = html.match(/id="priceblock_(?:ourprice|dealprice)"[^>]*>\s*\$([\d,]+(?:\.\d{1,2})?)/i);
-  if (priceBlock?.[1]) {
-    const v = parseFloat(priceBlock[1].replace(/,/g, ""));
-    if (!isNaN(v) && v > 0) return v;
-  }
-  // "price":{"value": 24.99}
-  const priceValue = html.match(/"price"\s*:\s*\{\s*"value"\s*:\s*([\d.]+)/);
-  if (priceValue?.[1]) {
-    const v = parseFloat(priceValue[1]);
-    if (!isNaN(v) && v > 0) return v;
-  }
+
+  // 10. Any "$XX.XX" pattern inside a recognized price wrapper
+  const wrapperPrices = html.match(/(?:apex_offerDisplay|corePriceDisplay|buybox|price_inside_buybox|twister-plus-price)[^$]{0,500}\$([\d,]+(?:\.\d{1,2})?)/i);
+  v = tryParse(wrapperPrices?.[1]);
+  if (v) return v;
+
   return null;
 }
 
