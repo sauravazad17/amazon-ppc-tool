@@ -265,7 +265,7 @@ export default function Home() {
           </div>
         </header>
 
-        <main className="max-w-screen-2xl mx-auto w-full flex-1 grid grid-cols-1 lg:grid-cols-[160px_1fr] gap-0">
+        <main className="max-w-screen-2xl mx-auto w-full flex-1 grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-0">
           {/* Left Sidebar */}
           <aside className="lg:h-[calc(100vh-4rem)] lg:sticky lg:top-16 border-r border-white/50 bg-white/60 backdrop-blur-xl overflow-y-auto px-5 py-6">
             <Form {...form}>
