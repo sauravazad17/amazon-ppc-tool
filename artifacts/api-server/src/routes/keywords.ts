@@ -238,9 +238,11 @@ async function enrichCompetitorData(
           ...c,
           actualBrand: info?.brand ?? brandFromTitle(c.title),
           actualTitle: info?.title ?? c.title,
-          actualImage: info?.image ?? null,
-          actualPrice: info?.price ?? null,
-          actualRating: info?.rating ?? null,
+          actualImage: info?.image ?? c.searchImage ?? null,
+          // Use product-page value, but fall back to search-result value so we never
+          // discard a valid price/rating that was already scraped from search results
+          actualPrice: info?.price ?? c.searchPrice ?? null,
+          actualRating: info?.rating ?? c.searchRating ?? null,
         };
       }),
     );

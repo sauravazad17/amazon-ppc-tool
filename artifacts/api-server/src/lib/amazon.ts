@@ -230,82 +230,132 @@ function extractImageFromProductHtml(html: string): string | null {
 }
 
 function extractPriceFromProductHtml(html: string): number | null {
+  // Sanity-checked parse: price must be between $0.50 and $1999
   const tryParse = (s: string | undefined): number | null => {
     if (!s) return null;
     const v = parseFloat(s.replace(/,/g, ""));
-    return !isNaN(v) && v > 0 ? v : null;
+    return !isNaN(v) && v >= 0.5 && v < 2000 ? v : null;
   };
 
-  // 1. JSON "priceAmount": 24.99
-  let m = html.match(/"priceAmount"\s*:\s*([\d.]+)/);
+  // --- Tier 1: JSON blobs — most reliable, not layout-dependent ---
+
+  // 1. priceToPay (newest React data blob) — {"amount":"34.99","currency":"USD"}
+  let m = html.match(/"priceToPay"\s*:\s*\{\s*"amount"\s*:\s*"([\d.]+)"/);
   let v = tryParse(m?.[1]);
   if (v) return v;
 
-  // 2. priceToPay amount (newer React-based pages)
-  m = html.match(/"priceToPay"\s*:\s*\{[^}]*?"amount"\s*:\s*"([\d.]+)"/);
+  // 2. priceAmount scalar
+  m = html.match(/"priceAmount"\s*:\s*([\d.]+)/);
   v = tryParse(m?.[1]);
   if (v) return v;
 
-  // 3. displayPrice string "$34.99"
+  // 3. displayPrice with dollar sign
   m = html.match(/"displayPrice"\s*:\s*"\$([\d,]+(?:\.\d{1,2})?)"/);
   v = tryParse(m?.[1]);
   if (v) return v;
 
-  // 4. a-offscreen span inside a-price (most common legacy layout)
-  m = html.match(/class="a-offscreen"\s*>\s*\$([\d,]+(?:\.\d{1,2})?)\s*</i);
+  // 4. buyingPrice / formattedPrice
+  m = html.match(/"(?:buyingPrice|formattedPrice)"\s*:\s*"\$([\d,]+(?:\.\d{1,2})?)"/);
   v = tryParse(m?.[1]);
   if (v) return v;
 
-  // 5. corePriceDisplay / apex_offerDisplay price whole+fraction
-  const wholeFrac = html.match(/id="corePriceDisplay[^"]*"[\s\S]{0,3000}?class="a-price-whole"\s*>([\d,]+)[\s\S]{0,200}?class="a-price-fraction"\s*>(\d+)/i);
-  if (wholeFrac?.[1] && wholeFrac?.[2]) {
-    v = tryParse(`${wholeFrac[1]}.${wholeFrac[2]}`);
+  // --- Tier 2: HTML anchored to specific buybox IDs ---
+
+  // 5. data-a-color="price" marks the ACTUAL selling price (not the grey strikethrough "was" price)
+  //    Look for an a-offscreen dollar amount inside that colour block
+  const colorPriceBlock = html.match(/data-a-color="price"[^>]*>[\s\S]{0,400}?class="a-offscreen"\s*>\s*\$([\d,]+(?:\.\d{1,2})?)\s*</i);
+  v = tryParse(colorPriceBlock?.[1]);
+  if (v) return v;
+
+  // 6. corePriceDisplay_desktop_feature_div → first a-offscreen inside it (tight 1500-char window)
+  const corePriceSection = html.match(/id="corePriceDisplay_desktop_feature_div"([\s\S]{1,1500})/i);
+  if (corePriceSection?.[1]) {
+    const mo = corePriceSection[1].match(/class="a-offscreen"\s*>\s*\$([\d,]+(?:\.\d{1,2})?)\s*</i);
+    v = tryParse(mo?.[1]);
     if (v) return v;
   }
 
-  // 6. priceblock_ourprice / priceblock_dealprice (legacy)
+  // 7. apex_offerDisplay_desktop → first a-offscreen
+  const apexSection = html.match(/id="apex_offerDisplay[^"]*"([\s\S]{1,1500})/i);
+  if (apexSection?.[1]) {
+    const mo = apexSection[1].match(/class="a-offscreen"\s*>\s*\$([\d,]+(?:\.\d{1,2})?)\s*</i);
+    v = tryParse(mo?.[1]);
+    if (v) return v;
+  }
+
+  // 8. priceblock_ourprice / priceblock_dealprice (legacy layout)
   m = html.match(/id="priceblock_(?:ourprice|dealprice)"[^>]*>\s*\$([\d,]+(?:\.\d{1,2})?)/i);
   v = tryParse(m?.[1]);
   if (v) return v;
 
-  // 7. "price":{"value": 24.99}
-  m = html.match(/"price"\s*:\s*\{\s*"value"\s*:\s*([\d.]+)/);
-  v = tryParse(m?.[1]);
-  if (v) return v;
-
-  // 8. formattedPrice / buyingPrice
-  m = html.match(/"(?:formattedPrice|buyingPrice|purchasePrice)"\s*:\s*"\$([\d,]+(?:\.\d{1,2})?)"/);
-  v = tryParse(m?.[1]);
-  if (v) return v;
-
-  // 9. Any a-price block: <span class="a-price-whole">34<...><span class="a-price-fraction">99
-  const anyPrice = html.match(/class="a-price-whole"\s*>([\d,]+)<[\s\S]{0,200}?class="a-price-fraction"\s*>(\d+)/i);
-  if (anyPrice?.[1] && anyPrice?.[2]) {
-    v = tryParse(`${anyPrice[1]}.${anyPrice[2]}`);
-    if (v) return v;
+  // --- Tier 3: statistical fallback on all a-offscreen amounts ---
+  // Collect every dollar value shown on the page; take the median.
+  // Median avoids being skewed by very high "list" prices or very low coupon amounts.
+  const allOffscreen = [...html.matchAll(/class="a-offscreen"\s*>\s*\$([\d,]+(?:\.\d{1,2})?)\s*</gi)];
+  const candidates = allOffscreen
+    .map(match => parseFloat((match[1] ?? "").replace(/,/g, "")))
+    .filter(n => !isNaN(n) && n >= 1 && n < 2000);
+  if (candidates.length > 0) {
+    candidates.sort((a, b) => a - b);
+    // Prefer values that appear more than once (actual price vs. ads/was-prices)
+    const freq = new Map<number, number>();
+    for (const n of candidates) freq.set(n, (freq.get(n) ?? 0) + 1);
+    const bestCount = Math.max(...freq.values());
+    const mostCommon = candidates.find(n => freq.get(n) === bestCount);
+    if (mostCommon !== undefined) return mostCommon;
+    return candidates[Math.floor(candidates.length / 2)] ?? null;
   }
-
-  // 10. Any "$XX.XX" pattern inside a recognized price wrapper
-  const wrapperPrices = html.match(/(?:apex_offerDisplay|corePriceDisplay|buybox|price_inside_buybox|twister-plus-price)[^$]{0,500}\$([\d,]+(?:\.\d{1,2})?)/i);
-  v = tryParse(wrapperPrices?.[1]);
-  if (v) return v;
 
   return null;
 }
 
 function extractRatingFromProductHtml(html: string): number | null {
-  // "4.5 out of 5 stars"
-  const ratingText = html.match(/([\d.]+)\s+out\s+of\s+5\s+stars/i);
-  if (ratingText?.[1]) {
-    const v = parseFloat(ratingText[1]);
-    if (!isNaN(v) && v >= 1 && v <= 5) return v;
+  const tryRating = (s: string | undefined): number | null => {
+    if (!s) return null;
+    const v = parseFloat(s);
+    return !isNaN(v) && v >= 1 && v <= 5 ? v : null;
+  };
+
+  // 1. ratingScore JSON key (most reliable, in JS state blob)
+  let m = html.match(/"ratingScore"\s*:\s*"([\d.]+)"/);
+  let v = tryRating(m?.[1]);
+  if (v) return v;
+
+  // 2. acrPopover title attribute — this is the main product star widget
+  //    <span id="acrPopover" ... title="4.5 out of 5 stars">
+  m = html.match(/id="acrPopover"[^>]*title="([\d.]+)\s+out\s+of\s+5\s+stars"/i);
+  v = tryRating(m?.[1]);
+  if (v) return v;
+
+  // 3. a-icon-alt text — the hidden text inside the star icon
+  //    <span class="a-icon-alt">4.5 out of 5 stars</span>
+  m = html.match(/class="a-icon-alt"\s*>\s*([\d.]+)\s+out\s+of\s+5\s+stars\s*</i);
+  v = tryRating(m?.[1]);
+  if (v) return v;
+
+  // 4. averageStarRating in JSON
+  m = html.match(/"averageStarRating"\s*:\s*\{[^}]{0,200}"value"\s*:\s*"?([\d.]+)"?/);
+  v = tryRating(m?.[1]);
+  if (v) return v;
+
+  // 5. aria-label on star span (search-result-style widget used in some PDP layouts)
+  m = html.match(/aria-label="([\d.]+)\s+out\s+of\s+5\s+stars"[^>]*class="[^"]*a-star/i)
+    ?? html.match(/class="[^"]*a-star[^"]*"[^>]*aria-label="([\d.]+)\s+out\s+of\s+5\s+stars"/i);
+  v = tryRating(m?.[1]);
+  if (v) return v;
+
+  // 6. Last resort: first "X out of 5 stars" anywhere — but only accept "nice" values (x.0 or x.5)
+  //    This avoids matching review snippet ratings like "4.0 out of 5 stars by reviewer"
+  const all = [...html.matchAll(/([\d.]+)\s+out\s+of\s+5\s+stars/gi)];
+  for (const match of all) {
+    const n = parseFloat(match[1] ?? "");
+    if (!isNaN(n) && n >= 1 && n <= 5) {
+      // Only trust half-star increments (1.0, 1.5, 2.0, ..., 5.0) — product ratings always round to 0.1
+      // but are displayed on product pages rounded to 0.5; accept any tenth
+      return Math.round(n * 10) / 10;
+    }
   }
-  // "ratingScore":"4.5"
-  const ratingScore = html.match(/"ratingScore"\s*:\s*"([\d.]+)"/);
-  if (ratingScore?.[1]) {
-    const v = parseFloat(ratingScore[1]);
-    if (!isNaN(v) && v >= 1 && v <= 5) return v;
-  }
+
   return null;
 }
 
