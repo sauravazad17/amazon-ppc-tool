@@ -1,26 +1,64 @@
+// Up-to-date user agents (2025) — rotated per request
 const USER_AGENTS = [
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:125.0) Gecko/20100101 Firefox/125.0",
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:127.0) Gecko/20100101 Firefox/127.0",
+  // Chrome on macOS
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+  // Chrome on Windows
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+  // Chrome on Windows (slightly older)
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+  // Firefox on Windows
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:137.0) Gecko/20100101 Firefox/137.0",
+  // Firefox on macOS
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 14.7; rv:136.0) Gecko/20100101 Firefox/136.0",
+  // Edge on Windows
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 Edg/135.0.0.0",
+  // Safari on macOS
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.4 Safari/605.1.15",
 ];
 
-function buildHeaders(ua: string): Record<string, string> {
-  return {
+// Accept-Language variations to cycle through
+const ACCEPT_LANGUAGES = [
+  "en-US,en;q=0.9",
+  "en-US,en;q=0.9,es;q=0.8",
+  "en-GB,en;q=0.9,en-US;q=0.8",
+  "en-US,en;q=0.8",
+];
+
+function buildHeaders(ua: string, referer?: string): Record<string, string> {
+  const isFirefox = ua.includes("Firefox");
+  const isSafari = ua.includes("Safari") && !ua.includes("Chrome");
+  const lang = ACCEPT_LANGUAGES[Math.floor(Math.random() * ACCEPT_LANGUAGES.length)] ?? "en-US,en;q=0.9";
+
+  const headers: Record<string, string> = {
     "User-Agent": ua,
-    Accept:
-      "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
+    Accept: isFirefox
+      ? "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
+      : isSafari
+        ? "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+        : "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+    "Accept-Language": lang,
     "Accept-Encoding": "gzip, deflate, br",
-    "Cache-Control": "no-cache",
-    Pragma: "no-cache",
+    "Cache-Control": "max-age=0",
+    Connection: "keep-alive",
     "Upgrade-Insecure-Requests": "1",
-    "Sec-Fetch-Dest": "document",
-    "Sec-Fetch-Mode": "navigate",
-    "Sec-Fetch-Site": "none",
-    "Sec-Fetch-User": "?1",
   };
+
+  // Chromium-family sec- headers (not sent by Firefox or Safari)
+  if (!isFirefox && !isSafari) {
+    headers["Sec-CH-UA"] = '"Chromium";v="135", "Not-A.Brand";v="8"';
+    headers["Sec-CH-UA-Mobile"] = "?0";
+    headers["Sec-CH-UA-Platform"] = ua.includes("Windows") ? '"Windows"' : '"macOS"';
+    headers["Sec-Fetch-Dest"] = "document";
+    headers["Sec-Fetch-Mode"] = "navigate";
+    headers["Sec-Fetch-Site"] = referer ? "same-origin" : "none";
+    headers["Sec-Fetch-User"] = "?1";
+  }
+
+  if (referer) {
+    headers["Referer"] = referer;
+  }
+
+  return headers;
 }
 
 export const ASIN_REGEX = /^B0[A-Z0-9]{8}$/;
@@ -57,22 +95,29 @@ function pickUa(seed: number): string {
 }
 
 function isHtmlBlocked(html: string): boolean {
-  if (!html) return true;
+  if (!html || html.length < 500) return true;
   // Amazon bot-detection / captcha pages
-  if (/Robot Check|Type the characters you see in this image|To discuss automated/i.test(html)) {
-    return true;
-  }
-  // Sorry page
-  if (/<title[^>]*>\s*Sorry!?\s*Something went wrong/i.test(html)) return true;
+  if (/Robot Check|Type the characters you see|To discuss automated access|api-services-support@amazon/i.test(html)) return true;
+  // CAPTCHA markers
+  if (/captcha|validateCaptcha|verify you are human|not a robot/i.test(html)) return true;
+  // Sorry / error page
+  if (/<title[^>]*>\s*(?:Sorry[!,]?|Page Not Found|404|503)/i.test(html)) return true;
+  // Page is basically empty (anti-bot blank response)
+  if (!/<html/i.test(html)) return true;
   return false;
 }
 
-async function fetchOnce(url: string, ua: string, timeoutMs: number): Promise<{ status: number; html: string }> {
+async function fetchOnce(
+  url: string,
+  ua: string,
+  timeoutMs: number,
+  referer?: string,
+): Promise<{ status: number; html: string }> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const res = await fetch(url, {
-      headers: buildHeaders(ua),
+      headers: buildHeaders(ua, referer),
       signal: ctrl.signal,
       redirect: "follow",
     });
@@ -83,32 +128,41 @@ async function fetchOnce(url: string, ua: string, timeoutMs: number): Promise<{ 
   }
 }
 
-async function fetchAmazon(url: string, timeoutMs = 12_000): Promise<string> {
-  const maxAttempts = 3;
+async function fetchAmazon(url: string, timeoutMs = 15_000): Promise<string> {
+  const maxAttempts = 4;
   let lastErr: unknown = null;
+
+  // Build a realistic referer: product pages come "from" the Amazon homepage or search
+  const referer = url.includes("/s?")
+    ? "https://www.amazon.com/"
+    : "https://www.amazon.com/s?k=products";
+
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const ua = pickUa(attempt + Math.floor(Math.random() * USER_AGENTS.length));
+    // Each attempt picks a different UA to vary the fingerprint
+    const ua = pickUa(attempt * 3 + Math.floor(Math.random() * USER_AGENTS.length));
     try {
-      const { status, html } = await fetchOnce(url, ua, timeoutMs);
+      const { status, html } = await fetchOnce(url, ua, timeoutMs, referer);
       if (status === 200 && !isHtmlBlocked(html)) {
         return html;
       }
-      // Retryable: 5xx, 429, or bot-detection page returned with 200
-      if (status >= 500 || status === 429 || (status === 200 && isHtmlBlocked(html))) {
-        lastErr = new Error(`Amazon returned HTTP ${status}${isHtmlBlocked(html) ? " (bot-check)" : ""}`);
+      const blocked = status === 200 && isHtmlBlocked(html);
+      // Retryable: 5xx, 429, or bot-detection page with 200
+      if (status >= 500 || status === 429 || blocked) {
+        lastErr = new Error(`Amazon returned HTTP ${status}${blocked ? " (bot-check)" : ""}`);
         if (attempt < maxAttempts - 1) {
-          const delay = 350 * Math.pow(2, attempt) + Math.floor(Math.random() * 250);
+          // Exponential back-off: 800ms → 1.6s → 3.2s + jitter
+          const delay = 800 * Math.pow(2, attempt) + Math.floor(Math.random() * 500);
           await new Promise((r) => setTimeout(r, delay));
           continue;
         }
         throw lastErr;
       }
-      // Non-retryable (4xx other than 429): bail immediately
+      // Non-retryable (4xx other than 429)
       throw new Error(`Amazon returned HTTP ${status}`);
     } catch (err) {
       lastErr = err;
       if (attempt < maxAttempts - 1) {
-        const delay = 350 * Math.pow(2, attempt) + Math.floor(Math.random() * 250);
+        const delay = 800 * Math.pow(2, attempt) + Math.floor(Math.random() * 500);
         await new Promise((r) => setTimeout(r, delay));
         continue;
       }
