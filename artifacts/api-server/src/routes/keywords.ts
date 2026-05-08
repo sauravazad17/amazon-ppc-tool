@@ -15,7 +15,7 @@ import {
 const router: IRouter = Router();
 
 const MAX_BATCH = 15;
-const CONCURRENCY = 5;
+const CONCURRENCY = 2; // keep Amazon requests low to avoid rate-limiting
 const MODEL = "gpt-5.4";
 
 const SYSTEM_PROMPT = `You are a senior Amazon PPC expert with 10+ years optimizing campaigns for top sellers. You think like an Amazon shopper AND a conversion-focused PPC manager.
@@ -581,11 +581,20 @@ async function processInPool<T, R>(
 ): Promise<R[]> {
   const results: R[] = new Array(items.length);
   let next = 0;
-  const runners = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+  // Stagger worker starts so they don't all hit Amazon in the same millisecond
+  const runners = Array.from({ length: Math.min(concurrency, items.length) }, async (_, runnerIdx) => {
+    // Each runner waits a bit before its first fetch to spread the load
+    if (runnerIdx > 0) {
+      await new Promise((r) => setTimeout(r, runnerIdx * 1500));
+    }
     while (true) {
       const i = next++;
       if (i >= items.length) return;
       results[i] = await worker(items[i] as T);
+      // Small pause between items within the same runner
+      if (next < items.length) {
+        await new Promise((r) => setTimeout(r, 800 + Math.floor(Math.random() * 400)));
+      }
     }
   });
   await Promise.all(runners);

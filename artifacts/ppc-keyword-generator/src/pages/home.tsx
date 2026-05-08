@@ -467,12 +467,29 @@ export default function Home() {
                     <Accordion type="single" collapsible defaultValue="item-0" className="space-y-4">
                       {mutation.data.items.map((item, idx) => (
                         <AccordionItem key={idx} value={`item-${idx}`} className="border-none">
-                          <AccordionTrigger className="bg-white rounded-xl px-4 py-3 border border-slate-100 shadow-sm hover:bg-violet-50/40 hover:no-underline transition-colors [&[data-state=open]]:rounded-b-none [&[data-state=open]]:border-b-0">
+                          <AccordionTrigger className={cn(
+                            "rounded-xl px-4 py-3 border shadow-sm hover:no-underline transition-colors [&[data-state=open]]:rounded-b-none [&[data-state=open]]:border-b-0",
+                            item.error
+                              ? "bg-rose-50 border-rose-200 hover:bg-rose-100/60"
+                              : "bg-white border-slate-100 hover:bg-violet-50/40"
+                          )}>
                             <div className="flex items-center gap-3">
-                              <span className="font-mono text-xs font-bold text-white bg-gradient-to-r from-violet-600 to-blue-600 px-2.5 py-0.5 rounded-lg">
+                              <span className={cn(
+                                "font-mono text-xs font-bold text-white px-2.5 py-0.5 rounded-lg",
+                                item.error
+                                  ? "bg-rose-500"
+                                  : "bg-gradient-to-r from-violet-600 to-blue-600"
+                              )}>
                                 {item.asin || "TITLE"}
                               </span>
-                              <span className="text-sm text-slate-600 truncate max-w-xs">{item.title}</span>
+                              {item.error ? (
+                                <span className="text-sm text-rose-600 font-medium flex items-center gap-1.5">
+                                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                                  {item.error}
+                                </span>
+                              ) : (
+                                <span className="text-sm text-slate-600 truncate max-w-xs">{item.title}</span>
+                              )}
                             </div>
                           </AccordionTrigger>
                           <AccordionContent className="border border-slate-100 border-t-0 rounded-b-xl p-0 shadow-sm overflow-hidden">
