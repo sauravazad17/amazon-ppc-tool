@@ -254,25 +254,9 @@ function extractPriceFromProductHtml(html: string): number | null {
   v = tryParse(m?.[1]);
   if (v) return v;
 
-  // 4. buyingPrice / formattedPrice (with or without $ prefix)
-  m = html.match(/"(?:buyingPrice|formattedPrice)"\s*:\s*"\$?([\d,]+(?:\.\d{1,2})?)"/);
+  // 4. buyingPrice / formattedPrice with dollar sign (explicit $ prevents matching ad/list prices)
+  m = html.match(/"(?:buyingPrice|formattedPrice)"\s*:\s*"\$([\d,]+(?:\.\d{1,2})?)"/);
   v = tryParse(m?.[1]);
-  if (v) return v;
-
-  // 4b. price as bare number in JSON object: "price":"29.99" or "price":29.99
-  m = html.match(/"price"\s*:\s*"?([\d]+\.[\d]{2})"?/);
-  v = tryParse(m?.[1]);
-  if (v) return v;
-
-  // 4c. lowPrice / minPrice (range products — take the lowest variant price)
-  m = html.match(/"(?:low|min)Price"\s*:\s*"?([\d.]+)"?/i);
-  v = tryParse(m?.[1]);
-  if (v) return v;
-
-  // 4d. "value": "29.99" inside a price-related object (common React state structure)
-  //     Look for it within 200 chars of "priceToPay", "buyingPrice", "displayPrice"
-  const priceCtx = html.match(/(?:"priceToPay"|"buyingPrice"|"displayPrice"|"priceAmount")[\s\S]{0,200}?"value"\s*:\s*"([\d.]+)"/);
-  v = tryParse(priceCtx?.[1]);
   if (v) return v;
 
   // --- Tier 2: HTML anchored to specific buybox IDs ---
@@ -308,14 +292,6 @@ function extractPriceFromProductHtml(html: string): number | null {
   m = html.match(/id="priceblock_(?:ourprice|dealprice)"[^>]*>\s*\$([\d,]+(?:\.\d{1,2})?)/i);
   v = tryParse(m?.[1]);
   if (v) return v;
-
-  // 8b. a-price-whole + a-price-fraction anywhere on page (buybox-style layout)
-  //     Restrict to the first occurrence — that's most likely the buybox price
-  const wfGlobal = html.match(/class="a-price-whole">([\d,]+)<\/span>[\s\S]{0,80}?class="a-price-fraction">(\d+)<\/span>/i);
-  if (wfGlobal?.[1] && wfGlobal?.[2]) {
-    v = tryParse(`${wfGlobal[1].replace(/,/g, "")}.${wfGlobal[2]}`);
-    if (v) return v;
-  }
 
   // --- Tier 3: statistical fallback on all a-offscreen amounts ---
   const allOffscreen = [...html.matchAll(/class="a-offscreen"\s*>\s*\$([\d,]+(?:\.\d{1,2})?)\s*</gi)];
