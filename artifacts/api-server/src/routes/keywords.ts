@@ -227,7 +227,8 @@ async function enrichCompetitorData(
 ): Promise<EnrichedHit[]> {
   const top = candidates.slice(0, limit);
   const results: EnrichedHit[] = [];
-  const BATCH = 4;
+  // Batch size 2: fewer simultaneous product-page fetches to avoid rate-limiting
+  const BATCH = 2;
 
   for (let i = 0; i < top.length; i += BATCH) {
     const batch = top.slice(i, i + BATCH);
@@ -239,17 +240,15 @@ async function enrichCompetitorData(
           actualBrand: info?.brand ?? brandFromTitle(c.title),
           actualTitle: info?.title ?? c.title,
           actualImage: info?.image ?? c.searchImage ?? null,
-          // Use product-page value, but fall back to search-result value so we never
-          // discard a valid price/rating that was already scraped from search results
           actualPrice: info?.price ?? c.searchPrice ?? null,
           actualRating: info?.rating ?? c.searchRating ?? null,
         };
       }),
     );
     results.push(...batchResults);
-    // Small pause between batches to reduce rate-limiting risk
+    // Pause between batches — 800ms base + jitter
     if (i + BATCH < top.length) {
-      await new Promise((r) => setTimeout(r, 300));
+      await new Promise((r) => setTimeout(r, 800 + Math.floor(Math.random() * 400)));
     }
   }
 
@@ -516,25 +515,31 @@ async function generateForOne(
     }
   };
 
-  // Run default-sort searches across all query candidates
-  await Promise.allSettled(
-    queryCandidates.map(async (q) => {
-      try {
-        const hits = await searchCompetitorHits(q, {
-          limit: 25,
-          excludeAsin: asin,
-          excludeBrand: userBrand,
-        });
-        addHits(hits);
-      } catch { /* ignore */ }
-    }),
-  );
-
-  // Also run price-desc on best query for higher-price candidates
-  if (queryCandidates[0]) {
+  // Run search queries SEQUENTIALLY to avoid hitting Amazon with parallel requests.
+  // We still try all query candidates — just one at a time.
+  for (const q of queryCandidates) {
     try {
-      const hpHits = await searchCompetitorHits(queryCandidates[0], {
+      const hits = await searchCompetitorHits(q, {
         limit: 20,
+        excludeAsin: asin,
+        excludeBrand: userBrand,
+      });
+      addHits(hits);
+    } catch { /* ignore */ }
+    // Short pause between search queries
+    if (allHits.length < 20) {
+      await new Promise((r) => setTimeout(r, 600 + Math.floor(Math.random() * 300)));
+    } else {
+      break; // enough candidates already — skip remaining queries
+    }
+  }
+
+  // Run price-desc search only if we still need more higher-price candidates
+  if (queryCandidates[0] && allHits.length < 25) {
+    try {
+      await new Promise((r) => setTimeout(r, 600));
+      const hpHits = await searchCompetitorHits(queryCandidates[0], {
+        limit: 15,
         excludeAsin: asin,
         excludeBrand: userBrand,
         sortBy: "price-desc",
@@ -545,8 +550,8 @@ async function generateForOne(
 
   if (allHits.length > 0) {
     try {
-      // Fetch full product data for up to 30 candidates
-      const enriched = await enrichCompetitorData(allHits, 30);
+      // Fetch full product data for up to 20 candidates (was 30)
+      const enriched = await enrichCompetitorData(allHits, 20);
       competitorTargets = await pickAndBuildTargets(
         enriched,
         title,
